@@ -1,6 +1,6 @@
+use color_eyre::Result;
 use std::fs;
 use std::path::Path;
-use color_eyre::Result;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigType {
@@ -323,9 +323,9 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     } else {
         String::new()
     };
-    
+
     let schema_list = get_default_schema();
-    
+
     let mut entries = Vec::new();
     let mut found_keys = std::collections::HashSet::new();
 
@@ -366,6 +366,6 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
             });
         }
     }
-    
+
     Ok(entries)
 }
