@@ -5,7 +5,7 @@
 use crate::app::{App, CurrentScreen};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Clear, Tabs, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
 pub fn ui(f: &mut Frame, app: &mut App) {
@@ -31,26 +31,71 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     f.render_stateful_widget(sidebar, chunks[0], &mut state);
 
     // Main Content
-    let main_area = chunks[1];
+    let main_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),    // content
+            Constraint::Length(3), // footer
+        ])
+        .split(chunks[1]);
+
+    let content_area = main_layout[0];
+    let footer_area = main_layout[1];
 
     match app.current_screen {
         CurrentScreen::Home => {
             let p = Paragraph::new("Welcome to PDM.\nPress 'q' to quit.")
                 .block(Block::default().borders(Borders::ALL).title(" Home "));
-            f.render_widget(p, main_area);
+            f.render_widget(p, content_area);
         }
-        CurrentScreen::BitcoinConfig => render_bitcoin_config(f, app, chunks[1]),
-        CurrentScreen::FileExplorer => render_file_explorer(f, app, chunks[1]),
-        CurrentScreen::Editing => render_editing_screen(f, app, chunks[1]),
+        CurrentScreen::BitcoinConfig => render_bitcoin_config(f, app, content_area),
+        CurrentScreen::FileExplorer => render_file_explorer(f, app, content_area),
+        CurrentScreen::Editing => render_editing_screen(f, app, content_area),
         CurrentScreen::EditingValue => {
-            render_editing_screen(f, app, chunks[1]); // Background
-            render_editing_value_popup(f, app, chunks[1]);  // Popup
-        },
-        _ => {}
+            render_editing_screen(f, app, content_area); // Background
+            render_editing_value_popup(f, app, content_area); // Popup
+        }
     }
+
+    render_footer(f, app, footer_area);
+}
+
+fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
+    let hints = match app.current_screen {
+        CurrentScreen::Home | CurrentScreen::BitcoinConfig => "↑/↓: menu  Enter: select  q: quit",
+        CurrentScreen::FileExplorer => "↑/↓: navigate  Enter: open/select  Esc: back  q: quit",
+        CurrentScreen::Editing => {
+            "↑/↓: select  Tab/Shift+Tab: change section  Space: enable  Enter: edit/toggle  Ctrl+S: save  Esc: home  q: quit"
+        }
+        CurrentScreen::EditingValue => {
+            "Type: edit  Backspace: delete  Enter: apply  Esc: cancel  Ctrl+S: save  q: quit"
+        }
+    };
+
+    let mut spans: Vec<Span> = Vec::new();
+    if let Some(note) = &app.notification {
+        spans.push(Span::styled(
+            note.clone(),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw("  "));
+    }
+    spans.push(Span::styled(hints, Style::default().fg(Color::DarkGray)));
+
+    let footer = Paragraph::new(Line::from(spans))
+        .block(Block::default().borders(Borders::ALL).title(" Keys "));
+    frame.render_widget(footer, area);
 }
 
 fn render_bitcoin_config(frame: &mut Frame, app: &mut App, area: Rect) {
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title(" Bitcoin Config ");
+    frame.render_widget(outer.clone(), area);
+    let inner = outer.inner(area);
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -58,7 +103,7 @@ fn render_bitcoin_config(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(3), // Button height
             Constraint::Percentage(40),
         ])
-        .split(area);
+        .split(inner);
 
     let centered_layout = Layout::default()
         .direction(Direction::Horizontal)
@@ -78,6 +123,8 @@ fn render_bitcoin_config(frame: &mut Frame, app: &mut App, area: Rect) {
         .style(button_style)
         .alignment(Alignment::Center);
     frame.render_widget(button, centered_layout[1]);
+
+    app.interactive_rects.select_config_button = Some(centered_layout[1]);
 }
 
 fn render_file_explorer(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -168,7 +215,7 @@ fn render_editing_screen(frame: &mut Frame, app: &mut App, area: Rect) {
         .block(Block::default().borders(Borders::ALL).title("Options"))
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
+                .bg(Color::White)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("> ");
@@ -191,7 +238,7 @@ fn render_editing_screen(frame: &mut Frame, app: &mut App, area: Rect) {
             "Unknown".to_string()
         };
 
-        let details = vec![
+        let details = [
             format!("Key: {}", entry.key),
             format!("Value: {}", entry.value),
             format!("Type: {}", type_info),
@@ -199,7 +246,7 @@ fn render_editing_screen(frame: &mut Frame, app: &mut App, area: Rect) {
             "Description:".to_string(),
             description.to_string(),
         ]
-            .join("\n");
+        .join("\n");
 
         let paragraph = Paragraph::new(details)
             .block(Block::default().borders(Borders::ALL).title("Details"))

@@ -2,16 +2,14 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::path::PathBuf;
-use ratatui::{
-    Terminal,
-    widgets::ListState,
-    layout::{Position, Rect},
-    backend::Backend
-};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::config::{ConfigEntry, ConfigType, parse_config};
 use anyhow::Result;
-use crate::config::{ConfigEntry, parse_config, ConfigType};
+use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{
+    layout::{Position, Rect},
+    widgets::ListState,
+};
+use std::path::PathBuf;
 
 #[derive(Default, PartialEq, Eq, Clone, Debug)]
 pub enum CurrentScreen {
@@ -21,7 +19,7 @@ pub enum CurrentScreen {
     FileExplorer,
     Editing,
     EditingValue,
-    Exiting,
+    // Exiting,
 }
 
 #[derive(Debug, Default)]
@@ -137,6 +135,7 @@ pub struct ConfigSection {
 pub struct App {
     pub current_screen: CurrentScreen,
     pub sidebar_index: usize,
+    pub config_flow_return_screen: CurrentScreen,
     pub sections: Vec<ConfigSection>,
     pub selected_section_index: usize,
     pub selected_item_index: usize,
@@ -154,6 +153,7 @@ impl App {
         App {
             current_screen: CurrentScreen::Home,
             sidebar_index: 0,
+            config_flow_return_screen: CurrentScreen::Home,
             sections: vec![],
             selected_section_index: 0,
             selected_item_index: 0,
@@ -205,17 +205,6 @@ impl App {
         Ok(())
     }
 
-    fn find_config_value(&self, key: &str) -> Option<String> {
-        for section in &self.sections {
-            for item in &section.items {
-                if item.key == key && item.enabled {
-                    return Some(item.value.clone());
-                }
-            }
-        }
-        None
-    }
-
     pub fn save_config(&mut self) -> Result<()> {
         if let Some(path) = &self.config_file_path {
             let mut content = String::new();
@@ -236,82 +225,90 @@ impl App {
         Ok(())
     }
 
-    fn handle_mouse_event(&mut self, mouse: event::MouseEvent) {
+    pub fn handle_mouse_event(&mut self, mouse: event::MouseEvent) {
         if mouse.kind == event::MouseEventKind::Down(event::MouseButton::Left) {
             match self.current_screen {
                 CurrentScreen::Home => {
-                    if let Some(rect) = self.interactive_rects.select_config_button {
-                        if rect.contains(Position {
+                    if let Some(rect) = self.interactive_rects.select_config_button
+                        && rect.contains(Position {
                             x: mouse.column,
                             y: mouse.row,
-                        }) {
-                            self.current_screen = CurrentScreen::FileExplorer;
-                            self.file_explorer.refresh_files();
-                        }
+                        })
+                    {
+                        self.config_flow_return_screen = self.current_screen.clone();
+                        self.current_screen = CurrentScreen::FileExplorer;
+                        self.file_explorer.refresh_files();
+                    }
+                }
+                CurrentScreen::BitcoinConfig => {
+                    if let Some(rect) = self.interactive_rects.select_config_button
+                        && rect.contains(Position {
+                            x: mouse.column,
+                            y: mouse.row,
+                        })
+                    {
+                        self.config_flow_return_screen = self.current_screen.clone();
+                        self.current_screen = CurrentScreen::FileExplorer;
+                        self.file_explorer.refresh_files();
                     }
                 }
                 CurrentScreen::FileExplorer => {
-                    if let Some(rect) = self.interactive_rects.file_list {
-                        if rect.contains(Position {
+                    if let Some(rect) = self.interactive_rects.file_list
+                        && rect.contains(Position {
                             x: mouse.column,
                             y: mouse.row,
-                        }) {
-                            // Account for borders (1 line top/bottom)
-                            if mouse.row > rect.y && mouse.row < rect.y + rect.height - 1 {
-                                let offset = self.file_explorer.list_state.offset();
-                                let row_index =
-                                    (mouse.row as usize).saturating_sub(rect.y as usize + 1);
-                                let index = row_index + offset;
+                        })
+                        && mouse.row > rect.y
+                        && mouse.row < rect.y + rect.height - 1
+                    {
+                        let offset = self.file_explorer.list_state.offset();
+                        let row_index = (mouse.row as usize).saturating_sub(rect.y as usize + 1);
+                        let index = row_index + offset;
 
-                                if index < self.file_explorer.files.len() {
-                                    self.file_explorer.list_state.select(Some(index));
-                                }
-                            }
+                        if index < self.file_explorer.files.len() {
+                            self.file_explorer.list_state.select(Some(index));
                         }
                     }
                 }
                 CurrentScreen::Editing => {
-                    if let Some(rect) = self.interactive_rects.tabs {
-                        if rect.contains(Position {
+                    if let Some(rect) = self.interactive_rects.tabs
+                        && rect.contains(Position {
                             x: mouse.column,
                             y: mouse.row,
-                        }) {
-                            if mouse.row > rect.y && mouse.row < rect.y + rect.height - 1 {
-                                let mut x = rect.x + 1;
-                                for (i, section) in self.sections.iter().enumerate() {
-                                    let width = section.name.len() as u16 + 3;
-                                    if mouse.column >= x && mouse.column < x + width {
-                                        self.selected_section_index = i;
-                                        self.selected_item_index = 0;
-                                        self.config_list_state.select(Some(0));
-                                        break;
-                                    }
-                                    x += width + 1;
-                                }
+                        })
+                        && mouse.row > rect.y
+                        && mouse.row < rect.y + rect.height - 1
+                    {
+                        let mut x = rect.x + 1;
+                        for (i, section) in self.sections.iter().enumerate() {
+                            let width = section.name.len() as u16 + 3;
+                            if mouse.column >= x && mouse.column < x + width {
+                                self.selected_section_index = i;
+                                self.selected_item_index = 0;
+                                self.config_list_state.select(Some(0));
+                                break;
                             }
+                            x += width + 1;
                         }
                     }
 
-                    if let Some(rect) = self.interactive_rects.config_list {
-                        if rect.contains(Position {
+                    if let Some(rect) = self.interactive_rects.config_list
+                        && rect.contains(Position {
                             x: mouse.column,
                             y: mouse.row,
-                        }) {
-                            if mouse.row > rect.y && mouse.row < rect.y + rect.height - 1 {
-                                let offset = self.config_list_state.offset();
-                                let row_index =
-                                    (mouse.row as usize).saturating_sub(rect.y as usize + 1);
-                                let index = row_index + offset;
+                        })
+                        && mouse.row > rect.y
+                        && mouse.row < rect.y + rect.height - 1
+                    {
+                        let offset = self.config_list_state.offset();
+                        let row_index = (mouse.row as usize).saturating_sub(rect.y as usize + 1);
+                        let index = row_index + offset;
 
-                                if let Some(section) =
-                                    self.sections.get(self.selected_section_index)
-                                {
-                                    if index < section.items.len() {
-                                        self.selected_item_index = index;
-                                        self.config_list_state.select(Some(index));
-                                    }
-                                }
-                            }
+                        if let Some(section) = self.sections.get(self.selected_section_index)
+                            && index < section.items.len()
+                        {
+                            self.selected_item_index = index;
+                            self.config_list_state.select(Some(index));
                         }
                     }
                 }
@@ -320,75 +317,73 @@ impl App {
         }
     }
 
-    fn handle_key_event(&mut self, key: KeyEvent) {
-        if self.current_screen == CurrentScreen::Editing
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-            && key.code == KeyCode::Char('s')
-        {
-        } else {
+    pub fn handle_key_event(&mut self, key: KeyEvent) {
+        let is_ctrl_s =
+            key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s');
+        if !is_ctrl_s {
             self.notification = None;
         }
 
         match self.current_screen {
-
             // Home Screen
             CurrentScreen::Home => match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => self.running = false,
                 _ => {}
             },
+            // Bitcoin config Screen
             CurrentScreen::BitcoinConfig => match key.code {
-                KeyCode::Char('q') | KeyCode::Char('?') => {},
+                KeyCode::Char('q') | KeyCode::Char('?') => {}
                 KeyCode::Enter => {
+                    self.config_flow_return_screen = self.current_screen.clone();
                     self.current_screen = CurrentScreen::FileExplorer;
                     self.file_explorer.refresh_files();
-                },
+                }
                 _ => {}
-            }
+            },
             // File Explorer Screen
             CurrentScreen::FileExplorer => match key.code {
                 KeyCode::Esc => {
-                    self.current_screen = CurrentScreen::Home;
+                    self.current_screen = self.config_flow_return_screen.clone();
                 }
-                KeyCode::Up | KeyCode::Char('k') => self.file_explorer.select_previous(),
-                KeyCode::Down | KeyCode::Char('j') => self.file_explorer.select_next(),
+                KeyCode::Up => self.file_explorer.select_previous(),
+                KeyCode::Down => self.file_explorer.select_next(),
                 KeyCode::Enter => {
-                    if let Some(selected_index) = self.file_explorer.list_state.selected() {
-                        if let Some(selected) = self.file_explorer.files.get(selected_index) {
-                            if selected.file_name().and_then(|n| n.to_str()) == Some("..")
-                                || selected.ends_with("..")
-                            {
-                                if let Some(parent) = self.file_explorer.current_dir.parent() {
-                                    self.file_explorer.current_dir = parent.to_path_buf();
-                                    self.file_explorer.list_state.select(Some(0));
-                                    self.file_explorer.refresh_files();
-                                }
-                            } else if selected.is_dir() {
-                                self.file_explorer.current_dir = selected.clone();
+                    if let Some(selected_index) = self.file_explorer.list_state.selected()
+                        && let Some(selected) = self.file_explorer.files.get(selected_index)
+                    {
+                        if selected.file_name().and_then(|n| n.to_str()) == Some("..")
+                            || selected.ends_with("..")
+                        {
+                            if let Some(parent) = self.file_explorer.current_dir.parent() {
+                                self.file_explorer.current_dir = parent.to_path_buf();
                                 self.file_explorer.list_state.select(Some(0));
                                 self.file_explorer.refresh_files();
+                            }
+                        } else if selected.is_dir() {
+                            self.file_explorer.current_dir = selected.clone();
+                            self.file_explorer.list_state.select(Some(0));
+                            self.file_explorer.refresh_files();
+                        } else {
+                            let path_str = selected.to_string_lossy().to_string();
+                            self.config_file_path = Some(path_str.clone());
+                            if self.load_config(&path_str).is_err() {
                             } else {
-                                let path_str = selected.to_string_lossy().to_string();
-                                self.config_file_path = Some(path_str.clone());
-                                if let Err(_) = self.load_config(&path_str) {
-                                } else {
-                                    self.current_screen = CurrentScreen::Editing;
-                                }
+                                self.current_screen = CurrentScreen::Editing;
                             }
                         }
                     }
                 }
                 _ => {}
             },
-
             // Editing Screen
             CurrentScreen::Editing => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+                if is_ctrl_s {
                     let _ = self.save_config();
                     return;
                 }
                 match key.code {
                     KeyCode::Esc => {
-                        self.current_screen = CurrentScreen::Home;
+                        self.current_screen = self.config_flow_return_screen.clone();
                     }
                     KeyCode::Right | KeyCode::Tab => {
                         if !self.sections.is_empty() {
@@ -412,18 +407,17 @@ impl App {
                             self.config_list_state.select(Some(0));
                         }
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if let Some(section) = self.sections.get(self.selected_section_index) {
-                            if !section.items.is_empty() {
-                                if self.selected_item_index < section.items.len() - 1 {
-                                    self.selected_item_index += 1;
-                                    self.config_list_state
-                                        .select(Some(self.selected_item_index));
-                                }
-                            }
+                    KeyCode::Down => {
+                        if let Some(section) = self.sections.get(self.selected_section_index)
+                            && !section.items.is_empty()
+                            && self.selected_item_index < section.items.len() - 1
+                        {
+                            self.selected_item_index += 1;
+                            self.config_list_state
+                                .select(Some(self.selected_item_index));
                         }
                     }
-                    KeyCode::Up | KeyCode::Char('k') => {
+                    KeyCode::Up => {
                         if self.selected_item_index > 0 {
                             self.selected_item_index -= 1;
                             self.config_list_state
@@ -431,64 +425,74 @@ impl App {
                         }
                     }
                     KeyCode::Enter => {
-                        if let Some(section) = self.sections.get_mut(self.selected_section_index) {
-                            if let Some(entry) = section.items.get_mut(self.selected_item_index) {
-                                let is_bool = if let Some(schema) = &entry.schema {
-                                    schema.value_type == ConfigType::Boolean
-                                } else {
-                                    false
-                                };
+                        if let Some(section) = self.sections.get_mut(self.selected_section_index)
+                            && let Some(entry) = section.items.get_mut(self.selected_item_index)
+                        {
+                            let is_bool = if let Some(schema) = &entry.schema {
+                                schema.value_type == ConfigType::Boolean
+                            } else {
+                                false
+                            };
 
-                                if is_bool {
-                                    entry.value = if entry.value == "1" {
-                                        "0".into()
-                                    } else {
-                                        "1".into()
-                                    };
-                                    entry.enabled = true;
+                            if is_bool {
+                                entry.value = if entry.value == "1" {
+                                    "0".into()
                                 } else {
-                                    self.editing_value = entry.value.clone();
-                                    self.current_screen = CurrentScreen::EditingValue;
-                                }
+                                    "1".into()
+                                };
+                                entry.enabled = true;
+                            } else {
+                                self.editing_value = entry.value.clone();
+                                self.current_screen = CurrentScreen::EditingValue;
                             }
                         }
                     }
                     KeyCode::Char(' ') => {
-                        if let Some(section) = self.sections.get_mut(self.selected_section_index) {
-                            if let Some(entry) = section.items.get_mut(self.selected_item_index) {
-                                entry.enabled = !entry.enabled;
-                            }
+                        if let Some(section) = self.sections.get_mut(self.selected_section_index)
+                            && let Some(entry) = section.items.get_mut(self.selected_item_index)
+                        {
+                            entry.enabled = !entry.enabled;
                         }
                     }
                     _ => {}
                 }
             }
-
-            // Editing value screen
-            CurrentScreen::EditingValue => match key.code {
-                KeyCode::Esc => {
+            // Editing value popup
+            CurrentScreen::EditingValue => {
+                if is_ctrl_s {
+                    if let Some(section) = self.sections.get_mut(self.selected_section_index)
+                        && let Some(entry) = section.items.get_mut(self.selected_item_index)
+                    {
+                        entry.value = self.editing_value.clone();
+                        entry.enabled = true;
+                    }
+                    let _ = self.save_config();
                     self.current_screen = CurrentScreen::Editing;
+                    return;
                 }
-                KeyCode::Enter => {
-                    if let Some(section) = self.sections.get_mut(self.selected_section_index) {
-                        if let Some(entry) = section.items.get_mut(self.selected_item_index) {
+
+                match key.code {
+                    KeyCode::Esc => {
+                        self.current_screen = CurrentScreen::Editing;
+                    }
+                    KeyCode::Enter => {
+                        if let Some(section) = self.sections.get_mut(self.selected_section_index)
+                            && let Some(entry) = section.items.get_mut(self.selected_item_index)
+                        {
                             entry.value = self.editing_value.clone();
                             entry.enabled = true;
                         }
+                        self.current_screen = CurrentScreen::Editing;
                     }
-                    self.current_screen = CurrentScreen::Editing;
+                    KeyCode::Backspace => {
+                        self.editing_value.pop();
+                    }
+                    KeyCode::Char(c) => {
+                        self.editing_value.push(c);
+                    }
+                    _ => {}
                 }
-                KeyCode::Backspace => {
-                    self.editing_value.pop();
-                }
-                KeyCode::Char(c) => {
-                    self.editing_value.push(c);
-                }
-                _ => {}
-            },
-            CurrentScreen::Exiting => {
-
-            },
+            }
         }
     }
 }

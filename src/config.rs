@@ -330,7 +330,7 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     let mut builder = Config::builder();
 
     if path.exists() {
-        builder = builder.add_source(File::from(path.as_ref()).format(FileFormat::Ini));
+        builder = builder.add_source(File::from(path).format(FileFormat::Ini));
     }
 
     let config = match builder.build() {
@@ -360,7 +360,7 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
         } {
             for key in table.keys() {
                 let actual_key = if key.contains('.') {
-                    key.split('.').last().unwrap_or(key).to_string()
+                    key.split('.').next_back().unwrap_or(key).to_string()
                 } else {
                     key.clone()
                 };
