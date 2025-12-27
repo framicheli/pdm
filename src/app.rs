@@ -501,3 +501,8 @@ impl Default for App {
         Self::new()
     }
 }
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}

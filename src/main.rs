@@ -40,6 +40,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+// Accept any Backend and an Event Provider Closure
 fn run_app<B: Backend, F>(
     terminal: &mut Terminal<B>,
     app: &mut App,
