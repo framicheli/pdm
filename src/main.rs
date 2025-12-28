@@ -146,6 +146,7 @@ mod tests {
 
         assert_eq!(app.sidebar_index, 1);
     }
+
     #[test]
     fn test_file_explorer_flow() {
         // Setup

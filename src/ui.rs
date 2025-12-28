@@ -50,7 +50,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
             f.render_widget(p, main_area);
         }
         CurrentScreen::BitcoinConfig => {
-            let p = Paragraph::new("Press [Enter] to select a bitcoin.conf file...").block(
+            let p = Paragraph::new("Press [Enter] to select a bitcoin.conf file").block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title(" Bitcoin Config "),

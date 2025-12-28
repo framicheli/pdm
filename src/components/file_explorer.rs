@@ -5,10 +5,16 @@
 use std::fs;
 use std::path::PathBuf;
 
+/// `FileExplorer` maintains the current directory, a sorted list of entries,
+/// and the currently selected index. It supports navigating directories,
+/// moving the selection, and selecting files.
 #[derive(Clone)]
 pub struct FileExplorer {
+    /// Current directory being explored.
     pub current_dir: PathBuf,
+    /// Sorted list of files and folders in `current_dir`.
     pub files: Vec<PathBuf>,
+    /// Index of the currently selected item.
     pub selected_index: usize,
 }
 
@@ -19,6 +25,7 @@ impl Default for FileExplorer {
 }
 
 impl FileExplorer {
+    /// Creates a new `FileExplorer` starting at the process working directory.
     pub fn new() -> Self {
         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let mut explorer = Self {
@@ -30,6 +37,10 @@ impl FileExplorer {
         explorer
     }
 
+    /// Loads the contents of `current_dir` into `files`.
+    ///
+    /// Directories are listed first, followed by files. If the directory
+    /// has a parent, a virtual `..` entry is added to allow navigating upward.
     pub fn load_directory(&mut self) {
         self.files.clear();
         self.selected_index = 0;
@@ -60,12 +71,14 @@ impl FileExplorer {
         }
     }
 
+    /// Moves the selection to the next entry.
     pub fn next(&mut self) {
         if !self.files.is_empty() {
             self.selected_index = (self.selected_index + 1) % self.files.len();
         }
     }
 
+    /// Moves the selection to the previous entry.
     pub fn previous(&mut self) {
         if !self.files.is_empty() {
             if self.selected_index == 0 {
@@ -76,6 +89,11 @@ impl FileExplorer {
         }
     }
 
+    /// Selects the current entry.
+    ///
+    /// - If it is a directory, enters that directory.
+    /// - If it is `..`, moves to the parent directory.
+    /// - If it is a file, returns its path.
     pub fn select(&mut self) -> Option<PathBuf> {
         if self.files.is_empty() {
             return None;
@@ -96,5 +114,78 @@ impl FileExplorer {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env::temp_dir;
+    use std::fs::{File, create_dir};
+
+    fn setup_temp_fs() -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let mut base = std::env::temp_dir();
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        base.push(format!("pdm_file_explorer_test_{}", unique));
+
+        fs::create_dir_all(&base).unwrap();
+        fs::create_dir(base.join("folder")).unwrap();
+        File::create(base.join("file.txt")).unwrap();
+
+        base
+    }
+
+    #[test]
+    fn loads_directory_entries() {
+        let dir = setup_temp_fs();
+        let mut explorer = FileExplorer {
+            current_dir: dir,
+            files: vec![],
+            selected_index: 0,
+        };
+
+        explorer.load_directory();
+        assert!(explorer.files.len() >= 2);
+    }
+
+    #[test]
+    fn next_and_previous_wrap() {
+        let dir = setup_temp_fs();
+        let mut explorer = FileExplorer {
+            current_dir: dir,
+            files: vec![PathBuf::from("a"), PathBuf::from("b")],
+            selected_index: 0,
+        };
+
+        explorer.next();
+        assert_eq!(explorer.selected_index, 1);
+
+        explorer.next();
+        assert_eq!(explorer.selected_index, 0);
+
+        explorer.previous();
+        assert_eq!(explorer.selected_index, 1);
+    }
+
+    #[test]
+    fn selecting_file_returns_path() {
+        let dir = setup_temp_fs();
+        let file = dir.join("file.txt");
+
+        let mut explorer = FileExplorer {
+            current_dir: dir,
+            files: vec![file.clone()],
+            selected_index: 0,
+        };
+
+        let result = explorer.select();
+        assert_eq!(result, Some(file));
     }
 }
