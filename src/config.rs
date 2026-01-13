@@ -10,268 +10,268 @@ use std::{collections::HashSet, path::Path};
 #[derive(Debug, Clone)]
 pub struct Core {
     // Data directory and storage
-    datadir: Option<String>,
-    blocksdir: Option<String>,
-    pid: Option<String>,
-    debuglogfile: Option<String>,
-    settings: Option<String>,
-    includeconf: Option<String>,
-    loadblock: Option<String>,
+    pub datadir: Option<String>,
+    pub blocksdir: Option<String>,
+    pub pid: Option<String>,
+    pub debuglogfile: Option<String>,
+    pub settings: Option<String>,
+    pub includeconf: Option<String>,
+    pub loadblock: Option<String>,
 
     // Indexing
-    txindex: Option<bool>,
-    blockfilterindex: Option<String>,
-    coinstatsindex: Option<bool>,
+    pub txindex: Option<bool>,
+    pub blockfilterindex: Option<String>,
+    pub coinstatsindex: Option<bool>,
 
     // Pruning
-    prune: Option<u32>,
+    pub prune: Option<u32>,
 
     // Memory and performance
-    dbcache: Option<u32>,
-    maxmempool: Option<u32>,
-    maxorphantx: Option<u32>,
-    mempoolexpiry: Option<u32>,
-    par: Option<i32>,
-    blockreconstructionextratxn: Option<u32>,
+    pub dbcache: Option<u32>,
+    pub maxmempool: Option<u32>,
+    pub maxorphantx: Option<u32>,
+    pub mempoolexpiry: Option<u32>,
+    pub par: Option<i32>,
+    pub blockreconstructionextratxn: Option<u32>,
 
     // Behavior
-    blocksonly: Option<bool>,
-    persistmempool: Option<bool>,
-    reindex: Option<bool>,
-    reindex_chainstate: Option<bool>,
-    sysperms: Option<bool>,
+    pub blocksonly: Option<bool>,
+    pub persistmempool: Option<bool>,
+    pub reindex: Option<bool>,
+    pub reindex_chainstate: Option<bool>,
+    pub sysperms: Option<bool>,
 
     // Daemon mode
-    daemon: Option<bool>,
-    daemonwait: Option<bool>,
+    pub daemon: Option<bool>,
+    pub daemonwait: Option<bool>,
 
     // Notification commands
-    alertnotify: Option<String>,
-    blocknotify: Option<String>,
-    startupnotify: Option<String>,
+    pub alertnotify: Option<String>,
+    pub blocknotify: Option<String>,
+    pub startupnotify: Option<String>,
 
     // Validation
-    assumevalid: Option<String>,
+    pub assumevalid: Option<String>,
 }
 
 /// Network Config
 #[derive(Debug, Clone)]
 pub struct Network {
     // Chain selection
-    chain: Option<String>,
-    testnet: Option<bool>,
-    regtest: Option<bool>,
-    signet: Option<bool>,
-    signetchallenge: Option<String>,
-    signetseednode: Option<String>,
+    pub chain: Option<String>,
+    pub testnet: Option<bool>,
+    pub regtest: Option<bool>,
+    pub signet: Option<bool>,
+    pub signetchallenge: Option<String>,
+    pub signetseednode: Option<String>,
 
     // Listening and binding
-    listen: Option<bool>,
-    bind: Option<String>,
-    whitebind: Option<String>,
-    port: Option<u32>,
+    pub listen: Option<bool>,
+    pub bind: Option<String>,
+    pub whitebind: Option<String>,
+    pub port: Option<u32>,
 
     // Connection limits
-    maxconnections: Option<u32>,
-    maxreceivebuffer: Option<u32>,
-    maxsendbuffer: Option<u32>,
-    maxuploadtarget: Option<u32>,
-    timeout: Option<u32>,
-    maxtimeadjustment: Option<u32>,
-    bantime: Option<u32>,
+    pub maxconnections: Option<u32>,
+    pub maxreceivebuffer: Option<u32>,
+    pub maxsendbuffer: Option<u32>,
+    pub maxuploadtarget: Option<u32>,
+    pub timeout: Option<u32>,
+    pub maxtimeadjustment: Option<u32>,
+    pub bantime: Option<u32>,
 
     // Peer discovery
-    discover: Option<bool>,
-    dns: Option<bool>,
-    dnsseed: Option<bool>,
-    fixedseeds: Option<bool>,
-    forcednsseed: Option<bool>,
-    seednode: Option<String>,
-    addnode: Option<String>,
-    connect: Option<String>,
+    pub discover: Option<bool>,
+    pub dns: Option<bool>,
+    pub dnsseed: Option<bool>,
+    pub fixedseeds: Option<bool>,
+    pub forcednsseed: Option<bool>,
+    pub seednode: Option<String>,
+    pub addnode: Option<String>,
+    pub connect: Option<String>,
 
     // Network selection
-    onlynet: Option<String>,
-    networkactive: Option<bool>,
+    pub onlynet: Option<String>,
+    pub networkactive: Option<bool>,
 
     // Proxy settings
-    proxy: Option<String>,
-    proxyrandomize: Option<bool>,
+    pub proxy: Option<String>,
+    pub proxyrandomize: Option<bool>,
 
     // Tor settings
-    onion: Option<String>,
-    listenonion: Option<bool>,
-    torcontrol: Option<String>,
-    torpassword: Option<String>,
+    pub onion: Option<String>,
+    pub listenonion: Option<bool>,
+    pub torcontrol: Option<String>,
+    pub torpassword: Option<String>,
 
     // I2P settings
-    i2psam: Option<String>,
-    i2pacceptincoming: Option<bool>,
+    pub i2psam: Option<String>,
+    pub i2pacceptincoming: Option<bool>,
 
     // CJDNS
-    cjdnsreachable: Option<bool>,
+    pub cjdnsreachable: Option<bool>,
 
     // Peer permissions
-    whitelist: Option<String>,
-    peerblockfilters: Option<bool>,
-    peerbloomfilters: Option<bool>,
-    permitbaremultisig: Option<bool>,
+    pub whitelist: Option<String>,
+    pub peerblockfilters: Option<bool>,
+    pub peerbloomfilters: Option<bool>,
+    pub permitbaremultisig: Option<bool>,
 
     // External IP
-    externalip: Option<String>,
+    pub externalip: Option<String>,
 
     // UPnP
-    upnp: Option<bool>,
+    pub upnp: Option<bool>,
 
     // ASN mapping
-    asmap: Option<String>,
+    pub asmap: Option<String>,
 }
 
 /// RPC Config
 #[derive(Debug, Clone)]
 pub struct RPC {
     // Server enable
-    server: Option<bool>,
+    pub server: Option<bool>,
 
     // Authentication
-    rpcuser: Option<String>,
-    rpcpassword: Option<String>,
-    rpcauth: Option<String>,
-    rpccookiefile: Option<String>,
+    pub rpcuser: Option<String>,
+    pub rpcpassword: Option<String>,
+    pub rpcauth: Option<String>,
+    pub rpccookiefile: Option<String>,
 
     // Connection
-    rpcport: Option<u32>,
-    rpcbind: Option<String>,
-    rpcallowip: Option<String>,
+    pub rpcport: Option<u32>,
+    pub rpcbind: Option<String>,
+    pub rpcallowip: Option<String>,
 
     // Performance
-    rpcthreads: Option<u32>,
+    pub rpcthreads: Option<u32>,
 
     // Serialization
-    rpcserialversion: Option<u32>,
+    pub rpcserialversion: Option<u32>,
 
     // Whitelist
-    rpcwhitelist: Option<String>,
-    rpcwhitelistdefault: Option<bool>,
+    pub rpcwhitelist: Option<String>,
+    pub rpcwhitelistdefault: Option<bool>,
 
     // REST interface
-    rest: Option<bool>,
+    pub rest: Option<bool>,
 }
 
 /// Wallet related config
 #[derive(Debug, Clone)]
 pub struct Wallet {
     // Enable/disable
-    disablewallet: Option<bool>,
+    pub disablewallet: Option<bool>,
 
     // Wallet paths
-    wallet: Option<String>,
-    walletdir: Option<String>,
+    pub wallet: Option<String>,
+    pub walletdir: Option<String>,
 
     // Address types
-    addresstype: Option<String>,
-    changetype: Option<String>,
+    pub addresstype: Option<String>,
+    pub changetype: Option<String>,
 
     // Fee settings
-    fallbackfee: Option<String>,
-    discardfee: Option<String>,
-    mintxfee: Option<String>,
-    paytxfee: Option<String>,
-    consolidatefeerate: Option<String>,
-    maxapsfee: Option<String>,
+    pub fallbackfee: Option<String>,
+    pub discardfee: Option<String>,
+    pub mintxfee: Option<String>,
+    pub paytxfee: Option<String>,
+    pub consolidatefeerate: Option<String>,
+    pub maxapsfee: Option<String>,
 
     // Transaction behavior
-    txconfirmtarget: Option<u32>,
-    spendzeroconfchange: Option<bool>,
-    walletrbf: Option<bool>,
-    avoidpartialspends: Option<bool>,
+    pub txconfirmtarget: Option<u32>,
+    pub spendzeroconfchange: Option<bool>,
+    pub walletrbf: Option<bool>,
+    pub avoidpartialspends: Option<bool>,
 
     // Key management
-    keypool: Option<u32>,
+    pub keypool: Option<u32>,
 
     // External signer
-    signer: Option<String>,
+    pub signer: Option<String>,
 
     // Broadcast
-    walletbroadcast: Option<bool>,
+    pub walletbroadcast: Option<bool>,
 
     // Notifications
-    walletnotify: Option<String>,
+    pub walletnotify: Option<String>,
 }
 
 /// Debugging related config
 #[derive(Debug, Clone)]
 pub struct Debugging {
     // Debug categories
-    debug: Option<String>,
-    debugexclude: Option<String>,
+    pub debug: Option<String>,
+    pub debugexclude: Option<String>,
 
     // Logging options
-    logips: Option<bool>,
-    logsourcelocations: Option<bool>,
-    logthreadnames: Option<bool>,
-    logtimestamps: Option<bool>,
-    shrinkdebugfile: Option<bool>,
-    printtoconsole: Option<bool>,
+    pub logips: Option<bool>,
+    pub logsourcelocations: Option<bool>,
+    pub logthreadnames: Option<bool>,
+    pub logtimestamps: Option<bool>,
+    pub shrinkdebugfile: Option<bool>,
+    pub printtoconsole: Option<bool>,
 
     // User agent
-    uacomment: Option<String>,
+    pub uacomment: Option<String>,
 
     // Fee limits
-    maxtxfee: Option<String>,
+    pub maxtxfee: Option<String>,
 }
 
 /// Mining related config
 #[derive(Debug, Clone)]
 pub struct Mining {
     // Block creation
-    blockmaxweight: Option<u32>,
-    blockmintxfee: Option<String>,
+    pub blockmaxweight: Option<u32>,
+    pub blockmintxfee: Option<String>,
 }
 
 /// Relay related config
 #[derive(Debug, Clone)]
 pub struct Relay {
     // Relay fees
-    minrelaytxfee: Option<String>,
+    pub minrelaytxfee: Option<String>,
 
     // Data carrier (OP_RETURN)
-    datacarrier: Option<bool>,
-    datacarriersize: Option<u32>,
+    pub datacarrier: Option<bool>,
+    pub datacarriersize: Option<u32>,
 
     // Sigops
-    bytespersigop: Option<u32>,
+    pub bytespersigop: Option<u32>,
 
     // Whitelist relay
-    whitelistforcerelay: Option<bool>,
-    whitelistrelay: Option<bool>,
+    pub whitelistforcerelay: Option<bool>,
+    pub whitelistrelay: Option<bool>,
 }
 
 /// ZMQ related config
 #[derive(Debug, Clone)]
 pub struct ZMQ {
     // Hash notifications
-    zmqpubhashblock: Option<String>,
-    zmqpubhashtx: Option<String>,
+    pub zmqpubhashblock: Option<String>,
+    pub zmqpubhashtx: Option<String>,
 
     // Raw data notifications
-    zmqpubrawblock: Option<String>,
-    zmqpubrawtx: Option<String>,
+    pub zmqpubrawblock: Option<String>,
+    pub zmqpubrawtx: Option<String>,
 
     // Sequence notifications
-    zmqpubsequence: Option<String>,
+    pub zmqpubsequence: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct BitcoinConfig {
-    core: Core,
-    network: Network,
-    rpc: RPC,
-    wallet: Wallet,
-    debugging: Debugging,
-    mining: Mining,
-    relay: Relay,
-    zmq: ZMQ,
+    pub core: Core,
+    pub network: Network,
+    pub rpc: RPC,
+    pub wallet: Wallet,
+    pub debugging: Debugging,
+    pub mining: Mining,
+    pub relay: Relay,
+    pub zmq: ZMQ,
 }
 
 /// Type of a configuration option value
