@@ -2,9 +2,14 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use config::{Config, File, FileFormat};
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::HashSet,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 /// Core Config
 #[derive(Debug, Clone)]
@@ -1379,6 +1384,221 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     Ok(entries)
 }
 
+/// Represents an open bitcoin.conf file
+#[derive(Debug, Clone)]
+pub struct BitcoinConfigFile {
+    pub path: PathBuf,
+    pub entries: Vec<ConfigEntry>,
+}
+
+impl BitcoinConfigFile {
+    /// Open and parse a bitcoin.conf file
+    pub fn open(path: &Path) -> Result<Self> {
+        let entries = parse_config(path)?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            entries,
+        })
+    }
+
+    /// Create a new config file with default schema entries (all disabled)
+    pub fn new(path: &Path) -> Self {
+        let schema_list = get_default_schema();
+        let entries = schema_list
+            .into_iter()
+            .map(|schema| ConfigEntry {
+                key: schema.key.clone(),
+                value: schema.default.clone(),
+                schema: Some(schema),
+                enabled: false,
+            })
+            .collect();
+
+        Self {
+            path: path.to_path_buf(),
+            entries,
+        }
+    }
+
+    /// Get a reference to an entry by key
+    pub fn get(&self, key: &str) -> Option<&ConfigEntry> {
+        self.entries.iter().find(|e| e.key == key)
+    }
+
+    /// Get a mutable reference to an entry by key
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut ConfigEntry> {
+        self.entries.iter_mut().find(|e| e.key == key)
+    }
+
+    /// Set the value of an entry by key, enabling it
+    /// Returns true if the entry was found and updated, false otherwise
+    pub fn set(&mut self, key: &str, value: &str) -> bool {
+        if let Some(entry) = self.get_mut(key) {
+            entry.value = value.to_string();
+            entry.enabled = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Enable an entry (use its current value in the config file)
+    pub fn enable(&mut self, key: &str) -> bool {
+        if let Some(entry) = self.get_mut(key) {
+            entry.enabled = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Disable an entry (comment it out / don't include in config file)
+    pub fn disable(&mut self, key: &str) -> bool {
+        if let Some(entry) = self.get_mut(key) {
+            entry.enabled = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Add a custom entry that is not in the schema
+    pub fn add_custom(&mut self, key: &str, value: &str) {
+        // Check if entry already exists
+        if let Some(entry) = self.get_mut(key) {
+            entry.value = value.to_string();
+            entry.enabled = true;
+        } else {
+            self.entries.push(ConfigEntry {
+                key: key.to_string(),
+                value: value.to_string(),
+                schema: None,
+                enabled: true,
+            });
+        }
+    }
+
+    /// Remove an entry by key
+    /// Returns true if the entry was found and removed
+    pub fn remove(&mut self, key: &str) -> bool {
+        let initial_len = self.entries.len();
+        self.entries.retain(|e| e.key != key);
+        self.entries.len() < initial_len
+    }
+
+    /// Get all enabled entries
+    pub fn enabled_entries(&self) -> Vec<&ConfigEntry> {
+        self.entries.iter().filter(|e| e.enabled).collect()
+    }
+
+    /// Get entries by category
+    pub fn entries_by_category(&self, category: ConfigCategory) -> Vec<&ConfigEntry> {
+        self.entries
+            .iter()
+            .filter(|e| {
+                e.schema
+                    .as_ref()
+                    .map(|s| s.category == category)
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    /// Save the configuration to the file
+    pub fn save(&self) -> Result<()> {
+        self.save_to(&self.path)
+    }
+
+    /// Save the configuration to a specific path
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        let content = self.to_config_string();
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {:?}", parent))?;
+        }
+
+        let mut file = fs::File::create(path)
+            .with_context(|| format!("Failed to create config file: {:?}", path))?;
+
+        file.write_all(content.as_bytes())
+            .with_context(|| format!("Failed to write to config file: {:?}", path))?;
+
+        Ok(())
+    }
+
+    /// Convert the configuration to a bitcoin.conf formatted string
+    /// Uses [main] section for INI-compatible parsing
+    pub fn to_config_string(&self) -> String {
+        let mut output = String::new();
+        let mut current_category: Option<ConfigCategory> = None;
+
+        // Use [main] section for mainnet configuration (INI-compatible format)
+        output.push_str("[main]\n");
+
+        // Group entries by category for cleaner output
+        let mut categorized_entries: Vec<(&ConfigEntry, Option<ConfigCategory>)> = self
+            .entries
+            .iter()
+            .filter(|e| e.enabled)
+            .map(|e| (e, e.schema.as_ref().map(|s| s.category)))
+            .collect();
+
+        // Sort by category for grouping
+        categorized_entries.sort_by_key(|(_, cat)| match cat {
+            Some(ConfigCategory::Core) => 0,
+            Some(ConfigCategory::Network) => 1,
+            Some(ConfigCategory::RPC) => 2,
+            Some(ConfigCategory::Wallet) => 3,
+            Some(ConfigCategory::Debugging) => 4,
+            Some(ConfigCategory::Mining) => 5,
+            Some(ConfigCategory::Relay) => 6,
+            Some(ConfigCategory::ZMQ) => 7,
+            None => 8,
+        });
+
+        for (entry, category) in categorized_entries {
+            // Add section comment when category changes
+            if category != current_category {
+                if current_category.is_some() {
+                    output.push('\n');
+                }
+                if let Some(cat) = category {
+                    let section_name = match cat {
+                        ConfigCategory::Core => "Core",
+                        ConfigCategory::Network => "Network",
+                        ConfigCategory::RPC => "RPC",
+                        ConfigCategory::Wallet => "Wallet",
+                        ConfigCategory::Debugging => "Debugging",
+                        ConfigCategory::Mining => "Mining",
+                        ConfigCategory::Relay => "Relay",
+                        ConfigCategory::ZMQ => "ZMQ",
+                    };
+                    output.push_str(&format!("# {}\n", section_name));
+                } else {
+                    output.push_str("# Custom\n");
+                }
+                current_category = category;
+            }
+
+            output.push_str(&format!("{}={}\n", entry.key, entry.value));
+        }
+
+        output
+    }
+}
+
+/// Open and parse a bitcoin.conf file
+pub fn open_config(path: &Path) -> Result<BitcoinConfigFile> {
+    BitcoinConfigFile::open(path)
+}
+
+/// Save configuration entries to a bitcoin.conf file
+pub fn save_config(config: &BitcoinConfigFile) -> Result<()> {
+    config.save()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1758,5 +1978,277 @@ zmqpubhashtx=tcp://127.0.0.1:28333
         assert_eq!(schema.config_type, cloned.config_type);
         assert_eq!(schema.category, cloned.category);
         assert_eq!(schema.description, cloned.description);
+    }
+
+    // Tests for BitcoinConfigFile
+
+    #[test]
+    fn bitcoin_config_file_new_creates_with_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+
+        let config = BitcoinConfigFile::new(&path);
+
+        assert_eq!(config.path, path);
+        assert!(!config.entries.is_empty());
+
+        // All entries should be disabled
+        for entry in &config.entries {
+            assert!(!entry.enabled);
+            assert!(entry.schema.is_some());
+        }
+    }
+
+    #[test]
+    fn bitcoin_config_file_open_parses_file() {
+        let (_dir, path) = create_temp_config("txindex=1\nserver=1\n");
+
+        let config = BitcoinConfigFile::open(&path).unwrap();
+
+        let txindex = config.get("txindex").unwrap();
+        assert_eq!(txindex.value, "1");
+        assert!(txindex.enabled);
+
+        let server = config.get("server").unwrap();
+        assert_eq!(server.value, "1");
+        assert!(server.enabled);
+    }
+
+    #[test]
+    fn bitcoin_config_file_open_non_existent_returns_defaults() {
+        let path = Path::new("/non/existent/path/bitcoin.conf");
+
+        let config = BitcoinConfigFile::open(path).unwrap();
+
+        assert!(!config.entries.is_empty());
+        // All entries should be disabled
+        for entry in &config.entries {
+            assert!(!entry.enabled);
+        }
+    }
+
+    #[test]
+    fn bitcoin_config_file_get_returns_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let config = BitcoinConfigFile::new(&path);
+
+        let entry = config.get("txindex");
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().key, "txindex");
+
+        let nonexistent = config.get("nonexistent");
+        assert!(nonexistent.is_none());
+    }
+
+    #[test]
+    fn bitcoin_config_file_set_updates_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let mut config = BitcoinConfigFile::new(&path);
+
+        assert!(config.set("txindex", "1"));
+        let entry = config.get("txindex").unwrap();
+        assert_eq!(entry.value, "1");
+        assert!(entry.enabled);
+
+        // Non-existent key returns false
+        assert!(!config.set("nonexistent", "value"));
+    }
+
+    #[test]
+    fn bitcoin_config_file_enable_disable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let mut config = BitcoinConfigFile::new(&path);
+
+        // Initially disabled
+        assert!(!config.get("txindex").unwrap().enabled);
+
+        // Enable
+        assert!(config.enable("txindex"));
+        assert!(config.get("txindex").unwrap().enabled);
+
+        // Disable
+        assert!(config.disable("txindex"));
+        assert!(!config.get("txindex").unwrap().enabled);
+
+        // Non-existent key returns false
+        assert!(!config.enable("nonexistent"));
+        assert!(!config.disable("nonexistent"));
+    }
+
+    #[test]
+    fn bitcoin_config_file_add_custom() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let mut config = BitcoinConfigFile::new(&path);
+
+        config.add_custom("customkey", "customvalue");
+
+        let entry = config.get("customkey").unwrap();
+        assert_eq!(entry.key, "customkey");
+        assert_eq!(entry.value, "customvalue");
+        assert!(entry.enabled);
+        assert!(entry.schema.is_none());
+
+        // Adding again updates value
+        config.add_custom("customkey", "newvalue");
+        assert_eq!(config.get("customkey").unwrap().value, "newvalue");
+    }
+
+    #[test]
+    fn bitcoin_config_file_remove() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let mut config = BitcoinConfigFile::new(&path);
+
+        config.add_custom("customkey", "value");
+        assert!(config.get("customkey").is_some());
+
+        assert!(config.remove("customkey"));
+        assert!(config.get("customkey").is_none());
+
+        // Removing non-existent returns false
+        assert!(!config.remove("nonexistent"));
+    }
+
+    #[test]
+    fn bitcoin_config_file_enabled_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let mut config = BitcoinConfigFile::new(&path);
+
+        config.set("txindex", "1");
+        config.set("server", "1");
+
+        let enabled = config.enabled_entries();
+        assert_eq!(enabled.len(), 2);
+    }
+
+    #[test]
+    fn bitcoin_config_file_entries_by_category() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let config = BitcoinConfigFile::new(&path);
+
+        let core_entries = config.entries_by_category(ConfigCategory::Core);
+        assert!(!core_entries.is_empty());
+
+        // All returned entries should be Core category
+        for entry in &core_entries {
+            assert_eq!(
+                entry.schema.as_ref().unwrap().category,
+                ConfigCategory::Core
+            );
+        }
+
+        let network_entries = config.entries_by_category(ConfigCategory::Network);
+        assert!(!network_entries.is_empty());
+    }
+
+    #[test]
+    fn bitcoin_config_file_to_config_string() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        let mut config = BitcoinConfigFile::new(&path);
+
+        config.set("txindex", "1");
+        config.set("server", "1");
+
+        let output = config.to_config_string();
+
+        assert!(output.contains("txindex=1"));
+        assert!(output.contains("server=1"));
+        assert!(output.contains("# Core"));
+        assert!(output.contains("# RPC"));
+    }
+
+    #[test]
+    fn bitcoin_config_file_save_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+
+        // Create and save config
+        let mut config = BitcoinConfigFile::new(&path);
+        config.set("txindex", "1");
+        config.set("dbcache", "1000");
+        config.set("server", "1");
+        config.set("rpcport", "8332");
+        config.save().unwrap();
+
+        // Reload and verify
+        let reloaded = BitcoinConfigFile::open(&path).unwrap();
+
+        let txindex = reloaded.get("txindex").unwrap();
+        assert_eq!(txindex.value, "1");
+        assert!(txindex.enabled);
+
+        let dbcache = reloaded.get("dbcache").unwrap();
+        assert_eq!(dbcache.value, "1000");
+        assert!(dbcache.enabled);
+
+        let server = reloaded.get("server").unwrap();
+        assert_eq!(server.value, "1");
+        assert!(server.enabled);
+
+        let rpcport = reloaded.get("rpcport").unwrap();
+        assert_eq!(rpcport.value, "8332");
+        assert!(rpcport.enabled);
+    }
+
+    #[test]
+    fn bitcoin_config_file_save_to_different_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let original_path = dir.path().join("bitcoin.conf");
+        let new_path = dir.path().join("subdir/bitcoin_backup.conf");
+
+        let mut config = BitcoinConfigFile::new(&original_path);
+        config.set("txindex", "1");
+
+        config.save_to(&new_path).unwrap();
+
+        // Verify file was created at new path
+        assert!(new_path.exists());
+
+        let reloaded = BitcoinConfigFile::open(&new_path).unwrap();
+        assert_eq!(reloaded.get("txindex").unwrap().value, "1");
+    }
+
+    #[test]
+    fn bitcoin_config_file_preserves_custom_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+
+        let mut config = BitcoinConfigFile::new(&path);
+        config.set("txindex", "1");
+        config.add_custom("mycustom", "myvalue");
+        config.save().unwrap();
+
+        let reloaded = BitcoinConfigFile::open(&path).unwrap();
+        let custom = reloaded.get("mycustom").unwrap();
+        assert_eq!(custom.value, "myvalue");
+        assert!(custom.enabled);
+    }
+
+    #[test]
+    fn open_config_function_works() {
+        let (_dir, path) = create_temp_config("txindex=1\n");
+
+        let config = open_config(&path).unwrap();
+        assert_eq!(config.get("txindex").unwrap().value, "1");
+    }
+
+    #[test]
+    fn save_config_function_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+
+        let mut config = BitcoinConfigFile::new(&path);
+        config.set("txindex", "1");
+
+        save_config(&config).unwrap();
+
+        assert!(path.exists());
     }
 }
