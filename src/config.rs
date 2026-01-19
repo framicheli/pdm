@@ -5,14 +5,13 @@
 use anyhow::{Context, Result};
 use config::{Config, File, FileFormat};
 use std::{
-    collections::HashSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
 };
 
 /// Core Config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Core {
     // Data directory and storage
     pub datadir: Option<String>,
@@ -60,7 +59,7 @@ pub struct Core {
 }
 
 /// Network Config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Network {
     // Chain selection
     pub chain: Option<String>,
@@ -133,8 +132,8 @@ pub struct Network {
 }
 
 /// RPC Config
-#[derive(Debug, Clone)]
-pub struct RPC {
+#[derive(Debug, Clone, Default)]
+pub struct Rpc {
     // Server enable
     pub server: Option<bool>,
 
@@ -164,7 +163,7 @@ pub struct RPC {
 }
 
 /// Wallet related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Wallet {
     // Enable/disable
     pub disablewallet: Option<bool>,
@@ -205,7 +204,7 @@ pub struct Wallet {
 }
 
 /// Debugging related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Debugging {
     // Debug categories
     pub debug: Option<String>,
@@ -227,7 +226,7 @@ pub struct Debugging {
 }
 
 /// Mining related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Mining {
     // Block creation
     pub blockmaxweight: Option<u32>,
@@ -235,7 +234,7 @@ pub struct Mining {
 }
 
 /// Relay related config
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Relay {
     // Relay fees
     pub minrelaytxfee: Option<String>,
@@ -253,8 +252,8 @@ pub struct Relay {
 }
 
 /// ZMQ related config
-#[derive(Debug, Clone)]
-pub struct ZMQ {
+#[derive(Debug, Clone, Default)]
+pub struct Zmq {
     // Hash notifications
     pub zmqpubhashblock: Option<String>,
     pub zmqpubhashtx: Option<String>,
@@ -267,1253 +266,282 @@ pub struct ZMQ {
     pub zmqpubsequence: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+/// Complete Bitcoin configuration
+#[derive(Debug, Clone, Default)]
 pub struct BitcoinConfig {
+    pub path: Option<PathBuf>,
     pub core: Core,
     pub network: Network,
-    pub rpc: RPC,
+    pub rpc: Rpc,
     pub wallet: Wallet,
     pub debugging: Debugging,
     pub mining: Mining,
     pub relay: Relay,
-    pub zmq: ZMQ,
+    pub zmq: Zmq,
 }
 
-/// Type of a configuration option value
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigType {
-    Bool,
-    Int,
-    Float,
-    String,
-    Path,
-    Address,
-}
-
-/// Category of a configuration option
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigCategory {
-    Core,
-    Network,
-    RPC,
-    Wallet,
-    Debugging,
-    Mining,
-    Relay,
-    ZMQ,
-}
-
-/// Schema for a single configuration option
-#[derive(Debug, Clone)]
-pub struct ConfigSchema {
-    pub key: String,
-    pub default: String,
-    pub config_type: ConfigType,
-    pub category: ConfigCategory,
-    pub description: String,
-}
-
-impl ConfigSchema {
-    pub fn new(
-        key: &str,
-        default: &str,
-        config_type: ConfigType,
-        category: ConfigCategory,
-        description: &str,
-    ) -> Self {
-        Self {
-            key: key.to_string(),
-            default: default.to_string(),
-            config_type,
-            category,
-            description: description.to_string(),
-        }
-    }
-}
-
-/// A parsed configuration entry
-#[derive(Debug, Clone)]
-pub struct ConfigEntry {
-    pub key: String,
-    pub value: String,
-    pub schema: Option<ConfigSchema>,
-    pub enabled: bool,
-}
-
-/// Returns the default schema for all known bitcoin.conf options
-pub fn get_default_schema() -> Vec<ConfigSchema> {
-    vec![
-        // Core options
-        ConfigSchema::new(
-            "datadir",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Core,
-            "Specify data directory",
-        ),
-        ConfigSchema::new(
-            "blocksdir",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Core,
-            "Specify blocks directory",
-        ),
-        ConfigSchema::new(
-            "pid",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Core,
-            "Specify pid file",
-        ),
-        ConfigSchema::new(
-            "debuglogfile",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Core,
-            "Specify debug log file",
-        ),
-        ConfigSchema::new(
-            "settings",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Core,
-            "Specify settings file",
-        ),
-        ConfigSchema::new(
-            "includeconf",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Core,
-            "Include additional config file",
-        ),
-        ConfigSchema::new(
-            "loadblock",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Core,
-            "Import blocks from external file",
-        ),
-        ConfigSchema::new(
-            "txindex",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Maintain full transaction index",
-        ),
-        ConfigSchema::new(
-            "blockfilterindex",
-            "",
-            ConfigType::String,
-            ConfigCategory::Core,
-            "Maintain compact block filter index",
-        ),
-        ConfigSchema::new(
-            "coinstatsindex",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Maintain coinstats index",
-        ),
-        ConfigSchema::new(
-            "prune",
-            "0",
-            ConfigType::Int,
-            ConfigCategory::Core,
-            "Reduce storage by pruning old blocks",
-        ),
-        ConfigSchema::new(
-            "dbcache",
-            "450",
-            ConfigType::Int,
-            ConfigCategory::Core,
-            "Database cache size in MiB",
-        ),
-        ConfigSchema::new(
-            "maxmempool",
-            "300",
-            ConfigType::Int,
-            ConfigCategory::Core,
-            "Maximum mempool size in MiB",
-        ),
-        ConfigSchema::new(
-            "maxorphantx",
-            "100",
-            ConfigType::Int,
-            ConfigCategory::Core,
-            "Maximum orphan transactions",
-        ),
-        ConfigSchema::new(
-            "mempoolexpiry",
-            "336",
-            ConfigType::Int,
-            ConfigCategory::Core,
-            "Mempool expiry in hours",
-        ),
-        ConfigSchema::new(
-            "par",
-            "0",
-            ConfigType::Int,
-            ConfigCategory::Core,
-            "Script verification threads",
-        ),
-        ConfigSchema::new(
-            "blockreconstructionextratxn",
-            "100",
-            ConfigType::Int,
-            ConfigCategory::Core,
-            "Extra transactions for block reconstruction",
-        ),
-        ConfigSchema::new(
-            "blocksonly",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Reject transactions from network peers",
-        ),
-        ConfigSchema::new(
-            "persistmempool",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Save mempool on shutdown",
-        ),
-        ConfigSchema::new(
-            "reindex",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Rebuild chain state and block index",
-        ),
-        ConfigSchema::new(
-            "reindex-chainstate",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Rebuild chain state from blocks",
-        ),
-        ConfigSchema::new(
-            "sysperms",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Create files with system default permissions",
-        ),
-        ConfigSchema::new(
-            "daemon",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Run in background as daemon",
-        ),
-        ConfigSchema::new(
-            "daemonwait",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Core,
-            "Wait for initialization before backgrounding",
-        ),
-        ConfigSchema::new(
-            "alertnotify",
-            "",
-            ConfigType::String,
-            ConfigCategory::Core,
-            "Command to execute on alert",
-        ),
-        ConfigSchema::new(
-            "blocknotify",
-            "",
-            ConfigType::String,
-            ConfigCategory::Core,
-            "Command to execute on new block",
-        ),
-        ConfigSchema::new(
-            "startupnotify",
-            "",
-            ConfigType::String,
-            ConfigCategory::Core,
-            "Command to execute on startup",
-        ),
-        ConfigSchema::new(
-            "assumevalid",
-            "",
-            ConfigType::String,
-            ConfigCategory::Core,
-            "Assume blocks are valid up to this hash",
-        ),
-        // Network options
-        ConfigSchema::new(
-            "chain",
-            "main",
-            ConfigType::String,
-            ConfigCategory::Network,
-            "Chain to use (main, test, signet, regtest)",
-        ),
-        ConfigSchema::new(
-            "testnet",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Use testnet",
-        ),
-        ConfigSchema::new(
-            "regtest",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Use regtest",
-        ),
-        ConfigSchema::new(
-            "signet",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Use signet",
-        ),
-        ConfigSchema::new(
-            "signetchallenge",
-            "",
-            ConfigType::String,
-            ConfigCategory::Network,
-            "Signet challenge script",
-        ),
-        ConfigSchema::new(
-            "signetseednode",
-            "",
-            ConfigType::String,
-            ConfigCategory::Network,
-            "Signet seed node",
-        ),
-        ConfigSchema::new(
-            "listen",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Accept incoming connections",
-        ),
-        ConfigSchema::new(
-            "bind",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "Bind to address",
-        ),
-        ConfigSchema::new(
-            "whitebind",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "Bind with whitelist permissions",
-        ),
-        ConfigSchema::new(
-            "port",
-            "8333",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Listen on port",
-        ),
-        ConfigSchema::new(
-            "maxconnections",
-            "125",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Maximum peer connections",
-        ),
-        ConfigSchema::new(
-            "maxreceivebuffer",
-            "5000",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Maximum receive buffer per connection",
-        ),
-        ConfigSchema::new(
-            "maxsendbuffer",
-            "1000",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Maximum send buffer per connection",
-        ),
-        ConfigSchema::new(
-            "maxuploadtarget",
-            "0",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Maximum upload target in MiB per day",
-        ),
-        ConfigSchema::new(
-            "timeout",
-            "5000",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Connection timeout in milliseconds",
-        ),
-        ConfigSchema::new(
-            "maxtimeadjustment",
-            "4200",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Maximum time adjustment in seconds",
-        ),
-        ConfigSchema::new(
-            "bantime",
-            "86400",
-            ConfigType::Int,
-            ConfigCategory::Network,
-            "Ban duration in seconds",
-        ),
-        ConfigSchema::new(
-            "discover",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Discover own IP address",
-        ),
-        ConfigSchema::new(
-            "dns",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Allow DNS lookups",
-        ),
-        ConfigSchema::new(
-            "dnsseed",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Query DNS seeds",
-        ),
-        ConfigSchema::new(
-            "fixedseeds",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Use fixed seeds if DNS fails",
-        ),
-        ConfigSchema::new(
-            "forcednsseed",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Always query DNS seeds",
-        ),
-        ConfigSchema::new(
-            "seednode",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "Connect to seed node for addresses",
-        ),
-        ConfigSchema::new(
-            "addnode",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "Add node to connect to",
-        ),
-        ConfigSchema::new(
-            "connect",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "Connect only to specified node",
-        ),
-        ConfigSchema::new(
-            "onlynet",
-            "",
-            ConfigType::String,
-            ConfigCategory::Network,
-            "Only connect to network type",
-        ),
-        ConfigSchema::new(
-            "networkactive",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Enable network activity",
-        ),
-        ConfigSchema::new(
-            "proxy",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "SOCKS5 proxy",
-        ),
-        ConfigSchema::new(
-            "proxyrandomize",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Randomize proxy credentials",
-        ),
-        ConfigSchema::new(
-            "onion",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "SOCKS5 proxy for Tor",
-        ),
-        ConfigSchema::new(
-            "listenonion",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Create Tor onion service",
-        ),
-        ConfigSchema::new(
-            "torcontrol",
-            "127.0.0.1:9051",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "Tor control port",
-        ),
-        ConfigSchema::new(
-            "torpassword",
-            "",
-            ConfigType::String,
-            ConfigCategory::Network,
-            "Tor control password",
-        ),
-        ConfigSchema::new(
-            "i2psam",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "I2P SAM proxy",
-        ),
-        ConfigSchema::new(
-            "i2pacceptincoming",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Accept incoming I2P connections",
-        ),
-        ConfigSchema::new(
-            "cjdnsreachable",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "CJDNS reachable",
-        ),
-        ConfigSchema::new(
-            "whitelist",
-            "",
-            ConfigType::String,
-            ConfigCategory::Network,
-            "Whitelist peers",
-        ),
-        ConfigSchema::new(
-            "peerblockfilters",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Serve compact block filters",
-        ),
-        ConfigSchema::new(
-            "peerbloomfilters",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Support bloom filters",
-        ),
-        ConfigSchema::new(
-            "permitbaremultisig",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Relay bare multisig",
-        ),
-        ConfigSchema::new(
-            "externalip",
-            "",
-            ConfigType::Address,
-            ConfigCategory::Network,
-            "Specify external IP",
-        ),
-        ConfigSchema::new(
-            "upnp",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Network,
-            "Use UPnP for port mapping",
-        ),
-        ConfigSchema::new(
-            "asmap",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Network,
-            "ASN mapping file",
-        ),
-        // RPC options
-        ConfigSchema::new(
-            "server",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::RPC,
-            "Accept RPC commands",
-        ),
-        ConfigSchema::new(
-            "rpcuser",
-            "",
-            ConfigType::String,
-            ConfigCategory::RPC,
-            "RPC username",
-        ),
-        ConfigSchema::new(
-            "rpcpassword",
-            "",
-            ConfigType::String,
-            ConfigCategory::RPC,
-            "RPC password",
-        ),
-        ConfigSchema::new(
-            "rpcauth",
-            "",
-            ConfigType::String,
-            ConfigCategory::RPC,
-            "RPC auth credentials",
-        ),
-        ConfigSchema::new(
-            "rpccookiefile",
-            "",
-            ConfigType::Path,
-            ConfigCategory::RPC,
-            "RPC cookie file location",
-        ),
-        ConfigSchema::new(
-            "rpcport",
-            "8332",
-            ConfigType::Int,
-            ConfigCategory::RPC,
-            "RPC port",
-        ),
-        ConfigSchema::new(
-            "rpcbind",
-            "",
-            ConfigType::Address,
-            ConfigCategory::RPC,
-            "RPC bind address",
-        ),
-        ConfigSchema::new(
-            "rpcallowip",
-            "",
-            ConfigType::String,
-            ConfigCategory::RPC,
-            "Allow RPC from IP",
-        ),
-        ConfigSchema::new(
-            "rpcthreads",
-            "4",
-            ConfigType::Int,
-            ConfigCategory::RPC,
-            "RPC worker threads",
-        ),
-        ConfigSchema::new(
-            "rpcserialversion",
-            "1",
-            ConfigType::Int,
-            ConfigCategory::RPC,
-            "RPC serialization version",
-        ),
-        ConfigSchema::new(
-            "rpcwhitelist",
-            "",
-            ConfigType::String,
-            ConfigCategory::RPC,
-            "RPC method whitelist",
-        ),
-        ConfigSchema::new(
-            "rpcwhitelistdefault",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::RPC,
-            "Default RPC whitelist behavior",
-        ),
-        ConfigSchema::new(
-            "rest",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::RPC,
-            "Enable REST interface",
-        ),
-        // Wallet options
-        ConfigSchema::new(
-            "disablewallet",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Wallet,
-            "Disable wallet",
-        ),
-        ConfigSchema::new(
-            "wallet",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Wallet,
-            "Wallet to load",
-        ),
-        ConfigSchema::new(
-            "walletdir",
-            "",
-            ConfigType::Path,
-            ConfigCategory::Wallet,
-            "Wallet directory",
-        ),
-        ConfigSchema::new(
-            "addresstype",
-            "bech32",
-            ConfigType::String,
-            ConfigCategory::Wallet,
-            "Default address type",
-        ),
-        ConfigSchema::new(
-            "changetype",
-            "",
-            ConfigType::String,
-            ConfigCategory::Wallet,
-            "Change address type",
-        ),
-        ConfigSchema::new(
-            "fallbackfee",
-            "0.00",
-            ConfigType::Float,
-            ConfigCategory::Wallet,
-            "Fallback fee rate",
-        ),
-        ConfigSchema::new(
-            "discardfee",
-            "0.0001",
-            ConfigType::Float,
-            ConfigCategory::Wallet,
-            "Discard fee threshold",
-        ),
-        ConfigSchema::new(
-            "mintxfee",
-            "0.00001",
-            ConfigType::Float,
-            ConfigCategory::Wallet,
-            "Minimum transaction fee",
-        ),
-        ConfigSchema::new(
-            "paytxfee",
-            "0.00",
-            ConfigType::Float,
-            ConfigCategory::Wallet,
-            "Transaction fee rate",
-        ),
-        ConfigSchema::new(
-            "consolidatefeerate",
-            "0.0001",
-            ConfigType::Float,
-            ConfigCategory::Wallet,
-            "Consolidation fee rate",
-        ),
-        ConfigSchema::new(
-            "maxapsfee",
-            "0.00",
-            ConfigType::Float,
-            ConfigCategory::Wallet,
-            "Max fee for partial spend avoidance",
-        ),
-        ConfigSchema::new(
-            "txconfirmtarget",
-            "6",
-            ConfigType::Int,
-            ConfigCategory::Wallet,
-            "Confirmation target blocks",
-        ),
-        ConfigSchema::new(
-            "spendzeroconfchange",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Wallet,
-            "Spend unconfirmed change",
-        ),
-        ConfigSchema::new(
-            "walletrbf",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Wallet,
-            "Enable wallet RBF",
-        ),
-        ConfigSchema::new(
-            "avoidpartialspends",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Wallet,
-            "Avoid partial spends",
-        ),
-        ConfigSchema::new(
-            "keypool",
-            "1000",
-            ConfigType::Int,
-            ConfigCategory::Wallet,
-            "Keypool size",
-        ),
-        ConfigSchema::new(
-            "signer",
-            "",
-            ConfigType::String,
-            ConfigCategory::Wallet,
-            "External signer command",
-        ),
-        ConfigSchema::new(
-            "walletbroadcast",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Wallet,
-            "Broadcast wallet transactions",
-        ),
-        ConfigSchema::new(
-            "walletnotify",
-            "",
-            ConfigType::String,
-            ConfigCategory::Wallet,
-            "Command on wallet transaction",
-        ),
-        // Debugging options
-        ConfigSchema::new(
-            "debug",
-            "",
-            ConfigType::String,
-            ConfigCategory::Debugging,
-            "Debug categories",
-        ),
-        ConfigSchema::new(
-            "debugexclude",
-            "",
-            ConfigType::String,
-            ConfigCategory::Debugging,
-            "Exclude debug categories",
-        ),
-        ConfigSchema::new(
-            "logips",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Debugging,
-            "Log IP addresses",
-        ),
-        ConfigSchema::new(
-            "logsourcelocations",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Debugging,
-            "Log source locations",
-        ),
-        ConfigSchema::new(
-            "logthreadnames",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Debugging,
-            "Log thread names",
-        ),
-        ConfigSchema::new(
-            "logtimestamps",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Debugging,
-            "Log timestamps",
-        ),
-        ConfigSchema::new(
-            "shrinkdebugfile",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Debugging,
-            "Shrink debug.log on startup",
-        ),
-        ConfigSchema::new(
-            "printtoconsole",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Debugging,
-            "Print to console",
-        ),
-        ConfigSchema::new(
-            "uacomment",
-            "",
-            ConfigType::String,
-            ConfigCategory::Debugging,
-            "User agent comment",
-        ),
-        ConfigSchema::new(
-            "maxtxfee",
-            "0.10",
-            ConfigType::Float,
-            ConfigCategory::Debugging,
-            "Maximum transaction fee",
-        ),
-        // Mining options
-        ConfigSchema::new(
-            "blockmaxweight",
-            "3996000",
-            ConfigType::Int,
-            ConfigCategory::Mining,
-            "Maximum block weight",
-        ),
-        ConfigSchema::new(
-            "blockmintxfee",
-            "0.00001",
-            ConfigType::Float,
-            ConfigCategory::Mining,
-            "Minimum block transaction fee",
-        ),
-        // Relay options
-        ConfigSchema::new(
-            "minrelaytxfee",
-            "0.00001",
-            ConfigType::Float,
-            ConfigCategory::Relay,
-            "Minimum relay fee",
-        ),
-        ConfigSchema::new(
-            "datacarrier",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Relay,
-            "Relay OP_RETURN transactions",
-        ),
-        ConfigSchema::new(
-            "datacarriersize",
-            "83",
-            ConfigType::Int,
-            ConfigCategory::Relay,
-            "Maximum OP_RETURN size",
-        ),
-        ConfigSchema::new(
-            "bytespersigop",
-            "20",
-            ConfigType::Int,
-            ConfigCategory::Relay,
-            "Bytes per sigop",
-        ),
-        ConfigSchema::new(
-            "whitelistforcerelay",
-            "0",
-            ConfigType::Bool,
-            ConfigCategory::Relay,
-            "Force relay from whitelist",
-        ),
-        ConfigSchema::new(
-            "whitelistrelay",
-            "1",
-            ConfigType::Bool,
-            ConfigCategory::Relay,
-            "Relay from whitelist",
-        ),
-        // ZMQ options
-        ConfigSchema::new(
-            "zmqpubhashblock",
-            "",
-            ConfigType::Address,
-            ConfigCategory::ZMQ,
-            "ZMQ hash block publisher",
-        ),
-        ConfigSchema::new(
-            "zmqpubhashtx",
-            "",
-            ConfigType::Address,
-            ConfigCategory::ZMQ,
-            "ZMQ hash tx publisher",
-        ),
-        ConfigSchema::new(
-            "zmqpubrawblock",
-            "",
-            ConfigType::Address,
-            ConfigCategory::ZMQ,
-            "ZMQ raw block publisher",
-        ),
-        ConfigSchema::new(
-            "zmqpubrawtx",
-            "",
-            ConfigType::Address,
-            ConfigCategory::ZMQ,
-            "ZMQ raw tx publisher",
-        ),
-        ConfigSchema::new(
-            "zmqpubsequence",
-            "",
-            ConfigType::Address,
-            ConfigCategory::ZMQ,
-            "ZMQ sequence publisher",
-        ),
-    ]
-}
-
-/// Parse bitcoin.conf file
-pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
-    let schema_list = get_default_schema();
-    let mut entries = Vec::new();
-    let mut found_keys: HashSet<String> = HashSet::new();
-    let mut builder = Config::builder();
-
-    if path.exists() {
-        builder = builder.add_source(File::from(path).format(FileFormat::Ini));
+impl BitcoinConfig {
+    /// Create a new empty configuration
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    let config = match builder.build() {
-        Ok(cfg) => cfg,
-        Err(_) => {
-            // Return schema defaults if config can't be parsed
-            for schema in schema_list {
-                entries.push(ConfigEntry {
-                    key: schema.key.clone(),
-                    value: schema.default.clone(),
-                    schema: Some(schema),
-                    enabled: false,
-                });
-            }
-            return Ok(entries);
-        }
-    };
-
-    let mut config_keys: HashSet<String> = HashSet::new();
-    let sections = vec!["", "main", "test", "signet", "regtest"];
-
-    // Collect all keys from all sections
-    for section in &sections {
-        if let Ok(table) = if section.is_empty() {
-            config.get_table("")
-        } else {
-            config.get_table(section)
-        } {
-            for key in table.keys() {
-                let actual_key = if key.contains('.') {
-                    key.split('.').next_back().unwrap_or(key).to_string()
-                } else {
-                    key.clone()
-                };
-                config_keys.insert(actual_key);
-            }
-        }
-    }
-
-    // Process known schema options
-    for schema in &schema_list {
-        let key = &schema.key;
-        let mut value = schema.default.clone();
-        let mut enabled = false;
-
-        for section in &sections {
-            let lookup_key = if section.is_empty() {
-                key.clone()
-            } else {
-                format!("{}.{}", section, key)
-            };
-
-            if let Ok(val) = config.get_string(&lookup_key) {
-                value = val;
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
-            }
-
-            if let Ok(val) = config.get_bool(&lookup_key) {
-                value = if val {
-                    "1".to_string()
-                } else {
-                    "0".to_string()
-                };
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
-            }
-
-            if let Ok(val) = config.get_int(&lookup_key) {
-                value = val.to_string();
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
-            }
-
-            if let Ok(val) = config.get_float(&lookup_key) {
-                value = val.to_string();
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
-            }
-        }
-
-        entries.push(ConfigEntry {
-            key: key.clone(),
-            value,
-            schema: Some(schema.clone()),
-            enabled,
-        });
-    }
-
-    // Add unknown config keys (not in schema)
-    for config_key in &config_keys {
-        if !found_keys.contains(config_key) {
-            // Try to get value from various sections
-            let mut value = String::new();
-            for section in &sections {
-                let lookup_key = if section.is_empty() {
-                    config_key.clone()
-                } else {
-                    format!("{}.{}", section, config_key)
-                };
-
-                if let Ok(val) = config.get_string(&lookup_key) {
-                    value = val;
-                    break;
-                }
-                if let Ok(val) = config.get_bool(&lookup_key) {
-                    value = if val {
-                        "1".to_string()
-                    } else {
-                        "0".to_string()
-                    };
-                    break;
-                }
-                if let Ok(val) = config.get_int(&lookup_key) {
-                    value = val.to_string();
-                    break;
-                }
-                if let Ok(val) = config.get_float(&lookup_key) {
-                    value = val.to_string();
-                    break;
-                }
-            }
-
-            entries.push(ConfigEntry {
-                key: config_key.clone(),
-                value,
-                schema: None,
-                enabled: true,
-            });
-        }
-    }
-
-    Ok(entries)
-}
-
-/// Represents an open bitcoin.conf file
-#[derive(Debug, Clone)]
-pub struct BitcoinConfigFile {
-    pub path: PathBuf,
-    pub entries: Vec<ConfigEntry>,
-}
-
-impl BitcoinConfigFile {
-    /// Open and parse a bitcoin.conf file
+    /// Open and parse bitcoin.conf file
     pub fn open(path: &Path) -> Result<Self> {
-        let entries = parse_config(path)?;
-        Ok(Self {
-            path: path.to_path_buf(),
-            entries,
-        })
-    }
+        let mut config = Self {
+            path: Some(path.to_path_buf()),
+            ..Default::default()
+        };
 
-    /// Create a new config file with default schema entries (all disabled)
-    pub fn new(path: &Path) -> Self {
-        let schema_list = get_default_schema();
-        let entries = schema_list
-            .into_iter()
-            .map(|schema| ConfigEntry {
-                key: schema.key.clone(),
-                value: schema.default.clone(),
-                schema: Some(schema),
-                enabled: false,
-            })
-            .collect();
-
-        Self {
-            path: path.to_path_buf(),
-            entries,
+        // If path doesn't exists error
+        // TODO: App specific error?
+        if !path.exists() {
+            eprintln!("Path doesn't exist!");
         }
-    }
 
-    /// Get a reference to an entry by key
-    pub fn get(&self, key: &str) -> Option<&ConfigEntry> {
-        self.entries.iter().find(|e| e.key == key)
-    }
+        let builder = Config::builder().add_source(File::from(path).format(FileFormat::Ini));
 
-    /// Get a mutable reference to an entry by key
-    pub fn get_mut(&mut self, key: &str) -> Option<&mut ConfigEntry> {
-        self.entries.iter_mut().find(|e| e.key == key)
-    }
+        let parsed = match builder.build() {
+            Ok(cfg) => cfg,
+            Err(_) => return Ok(config),
+        };
 
-    /// Set the value of an entry by key, enabling it
-    /// Returns true if the entry was found and updated, false otherwise
-    pub fn set(&mut self, key: &str, value: &str) -> bool {
-        if let Some(entry) = self.get_mut(key) {
-            entry.value = value.to_string();
-            entry.enabled = true;
-            true
-        } else {
-            false
+        let sections = vec!["", "main", "test", "signet", "regtest"];
+
+        macro_rules! get_string {
+            ($key:expr) => {{
+                let mut result = None;
+                for section in &sections {
+                    let lookup = if section.is_empty() {
+                        $key.to_string()
+                    } else {
+                        format!("{}.{}", section, $key)
+                    };
+                    if let Ok(val) = parsed.get_string(&lookup) {
+                        result = Some(val);
+                        break;
+                    }
+                }
+                result
+            }};
         }
-    }
 
-    /// Enable an entry (use its current value in the config file)
-    pub fn enable(&mut self, key: &str) -> bool {
-        if let Some(entry) = self.get_mut(key) {
-            entry.enabled = true;
-            true
-        } else {
-            false
+        macro_rules! get_bool {
+            ($key:expr) => {{
+                let mut result = None;
+                for section in &sections {
+                    let lookup = if section.is_empty() {
+                        $key.to_string()
+                    } else {
+                        format!("{}.{}", section, $key)
+                    };
+                    if let Ok(val) = parsed.get_bool(&lookup) {
+                        result = Some(val);
+                        break;
+                    }
+                    if let Ok(val) = parsed.get_int(&lookup) {
+                        result = Some(val != 0);
+                        break;
+                    }
+                }
+                result
+            }};
         }
-    }
 
-    /// Disable an entry (comment it out / don't include in config file)
-    pub fn disable(&mut self, key: &str) -> bool {
-        if let Some(entry) = self.get_mut(key) {
-            entry.enabled = false;
-            true
-        } else {
-            false
+        macro_rules! get_u32 {
+            ($key:expr) => {{
+                let mut result = None;
+                for section in &sections {
+                    let lookup = if section.is_empty() {
+                        $key.to_string()
+                    } else {
+                        format!("{}.{}", section, $key)
+                    };
+                    if let Ok(val) = parsed.get_int(&lookup) {
+                        result = Some(val as u32);
+                        break;
+                    }
+                }
+                result
+            }};
         }
-    }
 
-    /// Add a custom entry that is not in the schema
-    pub fn add_custom(&mut self, key: &str, value: &str) {
-        // Check if entry already exists
-        if let Some(entry) = self.get_mut(key) {
-            entry.value = value.to_string();
-            entry.enabled = true;
-        } else {
-            self.entries.push(ConfigEntry {
-                key: key.to_string(),
-                value: value.to_string(),
-                schema: None,
-                enabled: true,
-            });
+        macro_rules! get_i32 {
+            ($key:expr) => {{
+                let mut result = None;
+                for section in &sections {
+                    let lookup = if section.is_empty() {
+                        $key.to_string()
+                    } else {
+                        format!("{}.{}", section, $key)
+                    };
+                    if let Ok(val) = parsed.get_int(&lookup) {
+                        result = Some(val as i32);
+                        break;
+                    }
+                }
+                result
+            }};
         }
+
+        // Core options
+        config.core.datadir = get_string!("datadir");
+        config.core.blocksdir = get_string!("blocksdir");
+        config.core.pid = get_string!("pid");
+        config.core.debuglogfile = get_string!("debuglogfile");
+        config.core.settings = get_string!("settings");
+        config.core.includeconf = get_string!("includeconf");
+        config.core.loadblock = get_string!("loadblock");
+        config.core.txindex = get_bool!("txindex");
+        config.core.blockfilterindex = get_string!("blockfilterindex");
+        config.core.coinstatsindex = get_bool!("coinstatsindex");
+        config.core.prune = get_u32!("prune");
+        config.core.dbcache = get_u32!("dbcache");
+        config.core.maxmempool = get_u32!("maxmempool");
+        config.core.maxorphantx = get_u32!("maxorphantx");
+        config.core.mempoolexpiry = get_u32!("mempoolexpiry");
+        config.core.par = get_i32!("par");
+        config.core.blockreconstructionextratxn = get_u32!("blockreconstructionextratxn");
+        config.core.blocksonly = get_bool!("blocksonly");
+        config.core.persistmempool = get_bool!("persistmempool");
+        config.core.reindex = get_bool!("reindex");
+        config.core.reindex_chainstate = get_bool!("reindex-chainstate");
+        config.core.sysperms = get_bool!("sysperms");
+        config.core.daemon = get_bool!("daemon");
+        config.core.daemonwait = get_bool!("daemonwait");
+        config.core.alertnotify = get_string!("alertnotify");
+        config.core.blocknotify = get_string!("blocknotify");
+        config.core.startupnotify = get_string!("startupnotify");
+        config.core.assumevalid = get_string!("assumevalid");
+
+        // Network options
+        config.network.chain = get_string!("chain");
+        config.network.testnet = get_bool!("testnet");
+        config.network.regtest = get_bool!("regtest");
+        config.network.signet = get_bool!("signet");
+        config.network.signetchallenge = get_string!("signetchallenge");
+        config.network.signetseednode = get_string!("signetseednode");
+        config.network.listen = get_bool!("listen");
+        config.network.bind = get_string!("bind");
+        config.network.whitebind = get_string!("whitebind");
+        config.network.port = get_u32!("port");
+        config.network.maxconnections = get_u32!("maxconnections");
+        config.network.maxreceivebuffer = get_u32!("maxreceivebuffer");
+        config.network.maxsendbuffer = get_u32!("maxsendbuffer");
+        config.network.maxuploadtarget = get_u32!("maxuploadtarget");
+        config.network.timeout = get_u32!("timeout");
+        config.network.maxtimeadjustment = get_u32!("maxtimeadjustment");
+        config.network.bantime = get_u32!("bantime");
+        config.network.discover = get_bool!("discover");
+        config.network.dns = get_bool!("dns");
+        config.network.dnsseed = get_bool!("dnsseed");
+        config.network.fixedseeds = get_bool!("fixedseeds");
+        config.network.forcednsseed = get_bool!("forcednsseed");
+        config.network.seednode = get_string!("seednode");
+        config.network.addnode = get_string!("addnode");
+        config.network.connect = get_string!("connect");
+        config.network.onlynet = get_string!("onlynet");
+        config.network.networkactive = get_bool!("networkactive");
+        config.network.proxy = get_string!("proxy");
+        config.network.proxyrandomize = get_bool!("proxyrandomize");
+        config.network.onion = get_string!("onion");
+        config.network.listenonion = get_bool!("listenonion");
+        config.network.torcontrol = get_string!("torcontrol");
+        config.network.torpassword = get_string!("torpassword");
+        config.network.i2psam = get_string!("i2psam");
+        config.network.i2pacceptincoming = get_bool!("i2pacceptincoming");
+        config.network.cjdnsreachable = get_bool!("cjdnsreachable");
+        config.network.whitelist = get_string!("whitelist");
+        config.network.peerblockfilters = get_bool!("peerblockfilters");
+        config.network.peerbloomfilters = get_bool!("peerbloomfilters");
+        config.network.permitbaremultisig = get_bool!("permitbaremultisig");
+        config.network.externalip = get_string!("externalip");
+        config.network.upnp = get_bool!("upnp");
+        config.network.asmap = get_string!("asmap");
+
+        // RPC options
+        config.rpc.server = get_bool!("server");
+        config.rpc.rpcuser = get_string!("rpcuser");
+        config.rpc.rpcpassword = get_string!("rpcpassword");
+        config.rpc.rpcauth = get_string!("rpcauth");
+        config.rpc.rpccookiefile = get_string!("rpccookiefile");
+        config.rpc.rpcport = get_u32!("rpcport");
+        config.rpc.rpcbind = get_string!("rpcbind");
+        config.rpc.rpcallowip = get_string!("rpcallowip");
+        config.rpc.rpcthreads = get_u32!("rpcthreads");
+        config.rpc.rpcserialversion = get_u32!("rpcserialversion");
+        config.rpc.rpcwhitelist = get_string!("rpcwhitelist");
+        config.rpc.rpcwhitelistdefault = get_bool!("rpcwhitelistdefault");
+        config.rpc.rest = get_bool!("rest");
+
+        // Wallet options
+        config.wallet.disablewallet = get_bool!("disablewallet");
+        config.wallet.wallet = get_string!("wallet");
+        config.wallet.walletdir = get_string!("walletdir");
+        config.wallet.addresstype = get_string!("addresstype");
+        config.wallet.changetype = get_string!("changetype");
+        config.wallet.fallbackfee = get_string!("fallbackfee");
+        config.wallet.discardfee = get_string!("discardfee");
+        config.wallet.mintxfee = get_string!("mintxfee");
+        config.wallet.paytxfee = get_string!("paytxfee");
+        config.wallet.consolidatefeerate = get_string!("consolidatefeerate");
+        config.wallet.maxapsfee = get_string!("maxapsfee");
+        config.wallet.txconfirmtarget = get_u32!("txconfirmtarget");
+        config.wallet.spendzeroconfchange = get_bool!("spendzeroconfchange");
+        config.wallet.walletrbf = get_bool!("walletrbf");
+        config.wallet.avoidpartialspends = get_bool!("avoidpartialspends");
+        config.wallet.keypool = get_u32!("keypool");
+        config.wallet.signer = get_string!("signer");
+        config.wallet.walletbroadcast = get_bool!("walletbroadcast");
+        config.wallet.walletnotify = get_string!("walletnotify");
+
+        // Debugging options
+        config.debugging.debug = get_string!("debug");
+        config.debugging.debugexclude = get_string!("debugexclude");
+        config.debugging.logips = get_bool!("logips");
+        config.debugging.logsourcelocations = get_bool!("logsourcelocations");
+        config.debugging.logthreadnames = get_bool!("logthreadnames");
+        config.debugging.logtimestamps = get_bool!("logtimestamps");
+        config.debugging.shrinkdebugfile = get_bool!("shrinkdebugfile");
+        config.debugging.printtoconsole = get_bool!("printtoconsole");
+        config.debugging.uacomment = get_string!("uacomment");
+        config.debugging.maxtxfee = get_string!("maxtxfee");
+
+        // Mining options
+        config.mining.blockmaxweight = get_u32!("blockmaxweight");
+        config.mining.blockmintxfee = get_string!("blockmintxfee");
+
+        // Relay options
+        config.relay.minrelaytxfee = get_string!("minrelaytxfee");
+        config.relay.datacarrier = get_bool!("datacarrier");
+        config.relay.datacarriersize = get_u32!("datacarriersize");
+        config.relay.bytespersigop = get_u32!("bytespersigop");
+        config.relay.whitelistforcerelay = get_bool!("whitelistforcerelay");
+        config.relay.whitelistrelay = get_bool!("whitelistrelay");
+
+        // ZMQ options
+        config.zmq.zmqpubhashblock = get_string!("zmqpubhashblock");
+        config.zmq.zmqpubhashtx = get_string!("zmqpubhashtx");
+        config.zmq.zmqpubrawblock = get_string!("zmqpubrawblock");
+        config.zmq.zmqpubrawtx = get_string!("zmqpubrawtx");
+        config.zmq.zmqpubsequence = get_string!("zmqpubsequence");
+
+        Ok(config)
     }
 
-    /// Remove an entry by key
-    /// Returns true if the entry was found and removed
-    pub fn remove(&mut self, key: &str) -> bool {
-        let initial_len = self.entries.len();
-        self.entries.retain(|e| e.key != key);
-        self.entries.len() < initial_len
-    }
-
-    /// Get all enabled entries
-    pub fn enabled_entries(&self) -> Vec<&ConfigEntry> {
-        self.entries.iter().filter(|e| e.enabled).collect()
-    }
-
-    /// Get entries by category
-    pub fn entries_by_category(&self, category: ConfigCategory) -> Vec<&ConfigEntry> {
-        self.entries
-            .iter()
-            .filter(|e| {
-                e.schema
-                    .as_ref()
-                    .map(|s| s.category == category)
-                    .unwrap_or(false)
-            })
-            .collect()
-    }
-
-    /// Save the configuration to the file
+    /// Save the configuration to the stored path
     pub fn save(&self) -> Result<()> {
-        self.save_to(&self.path)
+        let path = self
+            .path
+            .as_ref()
+            .context("No path set for configuration")?;
+        self.save_to(path)
     }
 
     /// Save the configuration to a specific path
     pub fn save_to(&self, path: &Path) -> Result<()> {
         let content = self.to_config_string();
 
-        // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory: {:?}", parent))?;
@@ -1529,74 +557,214 @@ impl BitcoinConfigFile {
     }
 
     /// Convert the configuration to a bitcoin.conf formatted string
-    /// Uses [main] section for INI-compatible parsing
     pub fn to_config_string(&self) -> String {
         let mut output = String::new();
-        let mut current_category: Option<ConfigCategory> = None;
 
-        // Use [main] section for mainnet configuration (INI-compatible format)
-        output.push_str("[main]\n");
-
-        // Group entries by category for cleaner output
-        let mut categorized_entries: Vec<(&ConfigEntry, Option<ConfigCategory>)> = self
-            .entries
-            .iter()
-            .filter(|e| e.enabled)
-            .map(|e| (e, e.schema.as_ref().map(|s| s.category)))
-            .collect();
-
-        // Sort by category for grouping
-        categorized_entries.sort_by_key(|(_, cat)| match cat {
-            Some(ConfigCategory::Core) => 0,
-            Some(ConfigCategory::Network) => 1,
-            Some(ConfigCategory::RPC) => 2,
-            Some(ConfigCategory::Wallet) => 3,
-            Some(ConfigCategory::Debugging) => 4,
-            Some(ConfigCategory::Mining) => 5,
-            Some(ConfigCategory::Relay) => 6,
-            Some(ConfigCategory::ZMQ) => 7,
-            None => 8,
-        });
-
-        for (entry, category) in categorized_entries {
-            // Add section comment when category changes
-            if category != current_category {
-                if current_category.is_some() {
-                    output.push('\n');
+        // Helper macro to write options
+        macro_rules! write_string {
+            ($output:expr, $key:expr, $value:expr) => {
+                if let Some(ref val) = $value {
+                    $output.push_str(&format!("{}={}\n", $key, val));
                 }
-                if let Some(cat) = category {
-                    let section_name = match cat {
-                        ConfigCategory::Core => "Core",
-                        ConfigCategory::Network => "Network",
-                        ConfigCategory::RPC => "RPC",
-                        ConfigCategory::Wallet => "Wallet",
-                        ConfigCategory::Debugging => "Debugging",
-                        ConfigCategory::Mining => "Mining",
-                        ConfigCategory::Relay => "Relay",
-                        ConfigCategory::ZMQ => "ZMQ",
-                    };
-                    output.push_str(&format!("# {}\n", section_name));
-                } else {
-                    output.push_str("# Custom\n");
-                }
-                current_category = category;
-            }
-
-            output.push_str(&format!("{}={}\n", entry.key, entry.value));
+            };
         }
+
+        macro_rules! write_bool {
+            ($output:expr, $key:expr, $value:expr) => {
+                if let Some(val) = $value {
+                    $output.push_str(&format!("{}={}\n", $key, if val { "1" } else { "0" }));
+                }
+            };
+        }
+
+        macro_rules! write_u32 {
+            ($output:expr, $key:expr, $value:expr) => {
+                if let Some(val) = $value {
+                    $output.push_str(&format!("{}={}\n", $key, val));
+                }
+            };
+        }
+
+        macro_rules! write_i32 {
+            ($output:expr, $key:expr, $value:expr) => {
+                if let Some(val) = $value {
+                    $output.push_str(&format!("{}={}\n", $key, val));
+                }
+            };
+        }
+
+        // Core options
+        output.push_str("# Core\n");
+        write_string!(output, "datadir", self.core.datadir);
+        write_string!(output, "blocksdir", self.core.blocksdir);
+        write_string!(output, "pid", self.core.pid);
+        write_string!(output, "debuglogfile", self.core.debuglogfile);
+        write_string!(output, "settings", self.core.settings);
+        write_string!(output, "includeconf", self.core.includeconf);
+        write_string!(output, "loadblock", self.core.loadblock);
+        write_bool!(output, "txindex", self.core.txindex);
+        write_string!(output, "blockfilterindex", self.core.blockfilterindex);
+        write_bool!(output, "coinstatsindex", self.core.coinstatsindex);
+        write_u32!(output, "prune", self.core.prune);
+        write_u32!(output, "dbcache", self.core.dbcache);
+        write_u32!(output, "maxmempool", self.core.maxmempool);
+        write_u32!(output, "maxorphantx", self.core.maxorphantx);
+        write_u32!(output, "mempoolexpiry", self.core.mempoolexpiry);
+        write_i32!(output, "par", self.core.par);
+        write_u32!(
+            output,
+            "blockreconstructionextratxn",
+            self.core.blockreconstructionextratxn
+        );
+        write_bool!(output, "blocksonly", self.core.blocksonly);
+        write_bool!(output, "persistmempool", self.core.persistmempool);
+        write_bool!(output, "reindex", self.core.reindex);
+        write_bool!(output, "reindex-chainstate", self.core.reindex_chainstate);
+        write_bool!(output, "sysperms", self.core.sysperms);
+        write_bool!(output, "daemon", self.core.daemon);
+        write_bool!(output, "daemonwait", self.core.daemonwait);
+        write_string!(output, "alertnotify", self.core.alertnotify);
+        write_string!(output, "blocknotify", self.core.blocknotify);
+        write_string!(output, "startupnotify", self.core.startupnotify);
+        write_string!(output, "assumevalid", self.core.assumevalid);
+
+        // Network options
+        output.push_str("\n# Network\n");
+        write_string!(output, "chain", self.network.chain);
+        write_bool!(output, "testnet", self.network.testnet);
+        write_bool!(output, "regtest", self.network.regtest);
+        write_bool!(output, "signet", self.network.signet);
+        write_string!(output, "signetchallenge", self.network.signetchallenge);
+        write_string!(output, "signetseednode", self.network.signetseednode);
+        write_bool!(output, "listen", self.network.listen);
+        write_string!(output, "bind", self.network.bind);
+        write_string!(output, "whitebind", self.network.whitebind);
+        write_u32!(output, "port", self.network.port);
+        write_u32!(output, "maxconnections", self.network.maxconnections);
+        write_u32!(output, "maxreceivebuffer", self.network.maxreceivebuffer);
+        write_u32!(output, "maxsendbuffer", self.network.maxsendbuffer);
+        write_u32!(output, "maxuploadtarget", self.network.maxuploadtarget);
+        write_u32!(output, "timeout", self.network.timeout);
+        write_u32!(output, "maxtimeadjustment", self.network.maxtimeadjustment);
+        write_u32!(output, "bantime", self.network.bantime);
+        write_bool!(output, "discover", self.network.discover);
+        write_bool!(output, "dns", self.network.dns);
+        write_bool!(output, "dnsseed", self.network.dnsseed);
+        write_bool!(output, "fixedseeds", self.network.fixedseeds);
+        write_bool!(output, "forcednsseed", self.network.forcednsseed);
+        write_string!(output, "seednode", self.network.seednode);
+        write_string!(output, "addnode", self.network.addnode);
+        write_string!(output, "connect", self.network.connect);
+        write_string!(output, "onlynet", self.network.onlynet);
+        write_bool!(output, "networkactive", self.network.networkactive);
+        write_string!(output, "proxy", self.network.proxy);
+        write_bool!(output, "proxyrandomize", self.network.proxyrandomize);
+        write_string!(output, "onion", self.network.onion);
+        write_bool!(output, "listenonion", self.network.listenonion);
+        write_string!(output, "torcontrol", self.network.torcontrol);
+        write_string!(output, "torpassword", self.network.torpassword);
+        write_string!(output, "i2psam", self.network.i2psam);
+        write_bool!(output, "i2pacceptincoming", self.network.i2pacceptincoming);
+        write_bool!(output, "cjdnsreachable", self.network.cjdnsreachable);
+        write_string!(output, "whitelist", self.network.whitelist);
+        write_bool!(output, "peerblockfilters", self.network.peerblockfilters);
+        write_bool!(output, "peerbloomfilters", self.network.peerbloomfilters);
+        write_bool!(
+            output,
+            "permitbaremultisig",
+            self.network.permitbaremultisig
+        );
+        write_string!(output, "externalip", self.network.externalip);
+        write_bool!(output, "upnp", self.network.upnp);
+        write_string!(output, "asmap", self.network.asmap);
+
+        // RPC options
+        output.push_str("\n# RPC\n");
+        write_bool!(output, "server", self.rpc.server);
+        write_string!(output, "rpcuser", self.rpc.rpcuser);
+        write_string!(output, "rpcpassword", self.rpc.rpcpassword);
+        write_string!(output, "rpcauth", self.rpc.rpcauth);
+        write_string!(output, "rpccookiefile", self.rpc.rpccookiefile);
+        write_u32!(output, "rpcport", self.rpc.rpcport);
+        write_string!(output, "rpcbind", self.rpc.rpcbind);
+        write_string!(output, "rpcallowip", self.rpc.rpcallowip);
+        write_u32!(output, "rpcthreads", self.rpc.rpcthreads);
+        write_u32!(output, "rpcserialversion", self.rpc.rpcserialversion);
+        write_string!(output, "rpcwhitelist", self.rpc.rpcwhitelist);
+        write_bool!(output, "rpcwhitelistdefault", self.rpc.rpcwhitelistdefault);
+        write_bool!(output, "rest", self.rpc.rest);
+
+        // Wallet options
+        output.push_str("\n# Wallet\n");
+        write_bool!(output, "disablewallet", self.wallet.disablewallet);
+        write_string!(output, "wallet", self.wallet.wallet);
+        write_string!(output, "walletdir", self.wallet.walletdir);
+        write_string!(output, "addresstype", self.wallet.addresstype);
+        write_string!(output, "changetype", self.wallet.changetype);
+        write_string!(output, "fallbackfee", self.wallet.fallbackfee);
+        write_string!(output, "discardfee", self.wallet.discardfee);
+        write_string!(output, "mintxfee", self.wallet.mintxfee);
+        write_string!(output, "paytxfee", self.wallet.paytxfee);
+        write_string!(output, "consolidatefeerate", self.wallet.consolidatefeerate);
+        write_string!(output, "maxapsfee", self.wallet.maxapsfee);
+        write_u32!(output, "txconfirmtarget", self.wallet.txconfirmtarget);
+        write_bool!(
+            output,
+            "spendzeroconfchange",
+            self.wallet.spendzeroconfchange
+        );
+        write_bool!(output, "walletrbf", self.wallet.walletrbf);
+        write_bool!(output, "avoidpartialspends", self.wallet.avoidpartialspends);
+        write_u32!(output, "keypool", self.wallet.keypool);
+        write_string!(output, "signer", self.wallet.signer);
+        write_bool!(output, "walletbroadcast", self.wallet.walletbroadcast);
+        write_string!(output, "walletnotify", self.wallet.walletnotify);
+
+        // Debugging options
+        output.push_str("\n# Debugging\n");
+        write_string!(output, "debug", self.debugging.debug);
+        write_string!(output, "debugexclude", self.debugging.debugexclude);
+        write_bool!(output, "logips", self.debugging.logips);
+        write_bool!(
+            output,
+            "logsourcelocations",
+            self.debugging.logsourcelocations
+        );
+        write_bool!(output, "logthreadnames", self.debugging.logthreadnames);
+        write_bool!(output, "logtimestamps", self.debugging.logtimestamps);
+        write_bool!(output, "shrinkdebugfile", self.debugging.shrinkdebugfile);
+        write_bool!(output, "printtoconsole", self.debugging.printtoconsole);
+        write_string!(output, "uacomment", self.debugging.uacomment);
+        write_string!(output, "maxtxfee", self.debugging.maxtxfee);
+
+        // Mining options
+        output.push_str("\n# Mining\n");
+        write_u32!(output, "blockmaxweight", self.mining.blockmaxweight);
+        write_string!(output, "blockmintxfee", self.mining.blockmintxfee);
+
+        // Relay options
+        output.push_str("\n# Relay\n");
+        write_string!(output, "minrelaytxfee", self.relay.minrelaytxfee);
+        write_bool!(output, "datacarrier", self.relay.datacarrier);
+        write_u32!(output, "datacarriersize", self.relay.datacarriersize);
+        write_u32!(output, "bytespersigop", self.relay.bytespersigop);
+        write_bool!(
+            output,
+            "whitelistforcerelay",
+            self.relay.whitelistforcerelay
+        );
+        write_bool!(output, "whitelistrelay", self.relay.whitelistrelay);
+
+        // ZMQ options
+        output.push_str("\n# ZMQ\n");
+        write_string!(output, "zmqpubhashblock", self.zmq.zmqpubhashblock);
+        write_string!(output, "zmqpubhashtx", self.zmq.zmqpubhashtx);
+        write_string!(output, "zmqpubrawblock", self.zmq.zmqpubrawblock);
+        write_string!(output, "zmqpubrawtx", self.zmq.zmqpubrawtx);
+        write_string!(output, "zmqpubsequence", self.zmq.zmqpubsequence);
 
         output
     }
-}
-
-/// Open and parse a bitcoin.conf file
-pub fn open_config(path: &Path) -> Result<BitcoinConfigFile> {
-    BitcoinConfigFile::open(path)
-}
-
-/// Save configuration entries to a bitcoin.conf file
-pub fn save_config(config: &BitcoinConfigFile) -> Result<()> {
-    config.save()
 }
 
 #[cfg(test)]
@@ -1604,276 +772,102 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn create_temp_config(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    fn create_temp_config(content: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("bitcoin.conf");
-        let mut file = std::fs::File::create(&file_path).unwrap();
+        let mut file = fs::File::create(&file_path).unwrap();
         file.write_all(content.as_bytes()).unwrap();
         (dir, file_path)
     }
 
-    // Tests for get_default_schema()
-
     #[test]
-    fn get_default_schema_returns_non_empty_list() {
-        let schema = get_default_schema();
-        assert!(!schema.is_empty());
+    fn new_creates_empty_config() {
+        let config = BitcoinConfig::new();
+        assert!(config.path.is_none());
+        assert!(config.core.txindex.is_none());
+        assert!(config.rpc.server.is_none());
     }
 
     #[test]
-    fn get_default_schema_contains_core_options() {
-        let schema = get_default_schema();
-        let keys: Vec<&str> = schema.iter().map(|s| s.key.as_str()).collect();
-
-        assert!(keys.contains(&"datadir"));
-        assert!(keys.contains(&"txindex"));
-        assert!(keys.contains(&"prune"));
-        assert!(keys.contains(&"dbcache"));
-    }
-
-    #[test]
-    fn get_default_schema_contains_network_options() {
-        let schema = get_default_schema();
-        let keys: Vec<&str> = schema.iter().map(|s| s.key.as_str()).collect();
-
-        assert!(keys.contains(&"testnet"));
-        assert!(keys.contains(&"regtest"));
-        assert!(keys.contains(&"listen"));
-        assert!(keys.contains(&"port"));
-        assert!(keys.contains(&"maxconnections"));
-    }
-
-    #[test]
-    fn get_default_schema_contains_rpc_options() {
-        let schema = get_default_schema();
-        let keys: Vec<&str> = schema.iter().map(|s| s.key.as_str()).collect();
-
-        assert!(keys.contains(&"server"));
-        assert!(keys.contains(&"rpcuser"));
-        assert!(keys.contains(&"rpcpassword"));
-        assert!(keys.contains(&"rpcport"));
-    }
-
-    #[test]
-    fn get_default_schema_contains_zmq_options() {
-        let schema = get_default_schema();
-        let keys: Vec<&str> = schema.iter().map(|s| s.key.as_str()).collect();
-
-        assert!(keys.contains(&"zmqpubhashblock"));
-        assert!(keys.contains(&"zmqpubhashtx"));
-        assert!(keys.contains(&"zmqpubrawblock"));
-        assert!(keys.contains(&"zmqpubrawtx"));
-        assert!(keys.contains(&"zmqpubsequence"));
-    }
-
-    #[test]
-    fn get_default_schema_has_correct_categories() {
-        let schema = get_default_schema();
-
-        let txindex = schema.iter().find(|s| s.key == "txindex").unwrap();
-        assert_eq!(txindex.category, ConfigCategory::Core);
-
-        let testnet = schema.iter().find(|s| s.key == "testnet").unwrap();
-        assert_eq!(testnet.category, ConfigCategory::Network);
-
-        let server = schema.iter().find(|s| s.key == "server").unwrap();
-        assert_eq!(server.category, ConfigCategory::RPC);
-
-        let disablewallet = schema.iter().find(|s| s.key == "disablewallet").unwrap();
-        assert_eq!(disablewallet.category, ConfigCategory::Wallet);
-    }
-
-    #[test]
-    fn get_default_schema_has_correct_types() {
-        let schema = get_default_schema();
-
-        let txindex = schema.iter().find(|s| s.key == "txindex").unwrap();
-        assert_eq!(txindex.config_type, ConfigType::Bool);
-
-        let dbcache = schema.iter().find(|s| s.key == "dbcache").unwrap();
-        assert_eq!(dbcache.config_type, ConfigType::Int);
-
-        let fallbackfee = schema.iter().find(|s| s.key == "fallbackfee").unwrap();
-        assert_eq!(fallbackfee.config_type, ConfigType::Float);
-
-        let datadir = schema.iter().find(|s| s.key == "datadir").unwrap();
-        assert_eq!(datadir.config_type, ConfigType::Path);
-
-        let rpcbind = schema.iter().find(|s| s.key == "rpcbind").unwrap();
-        assert_eq!(rpcbind.config_type, ConfigType::Address);
-    }
-
-    // Tests for ConfigSchema::new()
-
-    #[test]
-    fn config_schema_new_creates_correct_schema() {
-        let schema = ConfigSchema::new(
-            "testkey",
-            "testdefault",
-            ConfigType::String,
-            ConfigCategory::Core,
-            "Test description",
-        );
-
-        assert_eq!(schema.key, "testkey");
-        assert_eq!(schema.default, "testdefault");
-        assert_eq!(schema.config_type, ConfigType::String);
-        assert_eq!(schema.category, ConfigCategory::Core);
-        assert_eq!(schema.description, "Test description");
-    }
-
-    // Tests for parse_config()
-
-    #[test]
-    fn parse_config_non_existent_file_returns_defaults() {
+    fn open_non_existent_returns_empty() {
         let path = Path::new("/non/existent/path/bitcoin.conf");
-        let entries = parse_config(path).unwrap();
+        let config = BitcoinConfig::open(path).unwrap();
 
-        assert!(!entries.is_empty());
-
-        // All entries should have schema and be disabled
-        for entry in &entries {
-            assert!(entry.schema.is_some());
-            assert!(!entry.enabled);
-        }
+        assert!(config.core.txindex.is_none());
+        assert!(config.rpc.server.is_none());
     }
 
     #[test]
-    fn parse_config_empty_file_returns_defaults() {
+    fn open_empty_file_returns_empty() {
         let (_dir, path) = create_temp_config("");
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        assert!(!entries.is_empty());
-
-        // All entries should be disabled (not set in config)
-        let enabled_count = entries.iter().filter(|e| e.enabled).count();
-        assert_eq!(enabled_count, 0);
+        assert!(config.core.txindex.is_none());
+        assert!(config.rpc.server.is_none());
     }
 
     #[test]
-    fn parse_config_parses_bool_values() {
+    fn open_parses_bool_values() {
         let (_dir, path) = create_temp_config("txindex=1\nserver=0\n");
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
-        assert_eq!(txindex.value, "1");
-        assert!(txindex.enabled);
-
-        let server = entries.iter().find(|e| e.key == "server").unwrap();
-        assert_eq!(server.value, "0");
-        assert!(server.enabled);
+        assert_eq!(config.core.txindex, Some(true));
+        assert_eq!(config.rpc.server, Some(false));
     }
 
     #[test]
-    fn parse_config_parses_int_values() {
+    fn open_parses_int_values() {
         let (_dir, path) = create_temp_config("dbcache=1000\nport=8334\n");
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        let dbcache = entries.iter().find(|e| e.key == "dbcache").unwrap();
-        assert_eq!(dbcache.value, "1000");
-        assert!(dbcache.enabled);
-
-        let port = entries.iter().find(|e| e.key == "port").unwrap();
-        assert_eq!(port.value, "8334");
-        assert!(port.enabled);
+        assert_eq!(config.core.dbcache, Some(1000));
+        assert_eq!(config.network.port, Some(8334));
     }
 
     #[test]
-    fn parse_config_parses_string_values() {
+    fn open_parses_string_values() {
         let (_dir, path) = create_temp_config("rpcuser=myuser\nrpcpassword=mypassword\n");
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        let rpcuser = entries.iter().find(|e| e.key == "rpcuser").unwrap();
-        assert_eq!(rpcuser.value, "myuser");
-        assert!(rpcuser.enabled);
-
-        let rpcpassword = entries.iter().find(|e| e.key == "rpcpassword").unwrap();
-        assert_eq!(rpcpassword.value, "mypassword");
-        assert!(rpcpassword.enabled);
+        assert_eq!(config.rpc.rpcuser, Some("myuser".to_string()));
+        assert_eq!(config.rpc.rpcpassword, Some("mypassword".to_string()));
     }
 
     #[test]
-    fn parse_config_parses_path_values() {
+    fn open_parses_path_values() {
         let (_dir, path) = create_temp_config("datadir=/home/user/.bitcoin\n");
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        let datadir = entries.iter().find(|e| e.key == "datadir").unwrap();
-        assert_eq!(datadir.value, "/home/user/.bitcoin");
-        assert!(datadir.enabled);
+        assert_eq!(config.core.datadir, Some("/home/user/.bitcoin".to_string()));
     }
 
     #[test]
-    fn parse_config_parses_address_values() {
+    fn open_parses_address_values() {
         let (_dir, path) = create_temp_config("zmqpubhashblock=tcp://127.0.0.1:28332\n");
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        let zmq = entries.iter().find(|e| e.key == "zmqpubhashblock").unwrap();
-        assert_eq!(zmq.value, "tcp://127.0.0.1:28332");
-        assert!(zmq.enabled);
-    }
-
-    #[test]
-    fn parse_config_handles_unknown_keys() {
-        // Use a section to ensure the config crate parses the key properly
-        let (_dir, path) = create_temp_config("[main]\nunknownkey=unknownvalue\n");
-        let entries = parse_config(&path).unwrap();
-
-        let unknown = entries.iter().find(|e| e.key == "unknownkey");
-        assert!(
-            unknown.is_some(),
-            "Unknown key should be present in entries"
+        assert_eq!(
+            config.zmq.zmqpubhashblock,
+            Some("tcp://127.0.0.1:28332".to_string())
         );
-
-        let unknown = unknown.unwrap();
-        assert_eq!(unknown.value, "unknownvalue");
-        assert!(unknown.enabled);
-        assert!(unknown.schema.is_none());
     }
 
     #[test]
-    fn parse_config_handles_section_values() {
+    fn open_handles_section_values() {
         let content = r#"
 [main]
 rpcport=8332
-
-[test]
-rpcport=18332
+server=1
 "#;
         let (_dir, path) = create_temp_config(content);
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        // Should find rpcport with first matching section value
-        let rpcport = entries.iter().find(|e| e.key == "rpcport").unwrap();
-        assert!(rpcport.enabled);
+        assert_eq!(config.rpc.rpcport, Some(8332));
+        assert_eq!(config.rpc.server, Some(true));
     }
 
     #[test]
-    fn parse_config_preserves_schema_info() {
-        let (_dir, path) = create_temp_config("txindex=1\n");
-        let entries = parse_config(&path).unwrap();
-
-        let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
-        assert!(txindex.schema.is_some());
-
-        let schema = txindex.schema.as_ref().unwrap();
-        assert_eq!(schema.config_type, ConfigType::Bool);
-        assert_eq!(schema.category, ConfigCategory::Core);
-        assert!(!schema.description.is_empty());
-    }
-
-    #[test]
-    fn parse_config_uses_defaults_for_unset_options() {
-        let (_dir, path) = create_temp_config("txindex=1\n");
-        let entries = parse_config(&path).unwrap();
-
-        // dbcache should have default value since not set
-        let dbcache = entries.iter().find(|e| e.key == "dbcache").unwrap();
-        assert_eq!(dbcache.value, "450"); // default value
-        assert!(!dbcache.enabled);
-    }
-
-    #[test]
-    fn parse_config_handles_comments() {
+    fn open_handles_comments() {
         let content = r#"
 # This is a comment
 txindex=1
@@ -1881,374 +875,93 @@ txindex=1
 server=1
 "#;
         let (_dir, path) = create_temp_config(content);
-        let entries = parse_config(&path).unwrap();
+        let config = BitcoinConfig::open(&path).unwrap();
 
-        let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
-        assert_eq!(txindex.value, "1");
-        assert!(txindex.enabled);
-
-        let server = entries.iter().find(|e| e.key == "server").unwrap();
-        assert_eq!(server.value, "1");
-        assert!(server.enabled);
+        assert_eq!(config.core.txindex, Some(true));
+        assert_eq!(config.rpc.server, Some(true));
     }
 
     #[test]
-    fn parse_config_handles_full_config() {
-        let content = r#"
-# Bitcoin Core configuration
-
-# Network
-testnet=0
-listen=1
-port=8333
-maxconnections=125
-
-# RPC
-server=1
-rpcuser=bitcoinrpc
-rpcpassword=secretpassword
-rpcport=8332
-rpcallowip=127.0.0.1
-
-# Wallet
-disablewallet=0
-fallbackfee=0.0002
-
-# ZMQ
-zmqpubhashblock=tcp://127.0.0.1:28332
-zmqpubhashtx=tcp://127.0.0.1:28333
-"#;
-        let (_dir, path) = create_temp_config(content);
-        let entries = parse_config(&path).unwrap();
-
-        // Verify various entries
-        let testnet = entries.iter().find(|e| e.key == "testnet").unwrap();
-        assert_eq!(testnet.value, "0");
-        assert!(testnet.enabled);
-
-        let rpcuser = entries.iter().find(|e| e.key == "rpcuser").unwrap();
-        assert_eq!(rpcuser.value, "bitcoinrpc");
-
-        let zmq = entries.iter().find(|e| e.key == "zmqpubhashblock").unwrap();
-        assert_eq!(zmq.value, "tcp://127.0.0.1:28332");
-    }
-
-    // Tests for ConfigType and ConfigCategory enums
-
-    #[test]
-    fn config_type_is_copy() {
-        let t1 = ConfigType::Bool;
-        let t2 = t1; // Copy
-        assert_eq!(t1, t2);
-    }
-
-    #[test]
-    fn config_category_is_copy() {
-        let c1 = ConfigCategory::Core;
-        let c2 = c1; // Copy
-        assert_eq!(c1, c2);
-    }
-
-    #[test]
-    fn config_entry_clone_works() {
-        let entry = ConfigEntry {
-            key: "test".to_string(),
-            value: "value".to_string(),
-            schema: None,
-            enabled: true,
-        };
-        let cloned = entry.clone();
-        assert_eq!(entry.key, cloned.key);
-        assert_eq!(entry.value, cloned.value);
-        assert_eq!(entry.enabled, cloned.enabled);
-    }
-
-    #[test]
-    fn config_schema_clone_works() {
-        let schema = ConfigSchema::new(
-            "test",
-            "default",
-            ConfigType::String,
-            ConfigCategory::Core,
-            "description",
-        );
-        let cloned = schema.clone();
-        assert_eq!(schema.key, cloned.key);
-        assert_eq!(schema.default, cloned.default);
-        assert_eq!(schema.config_type, cloned.config_type);
-        assert_eq!(schema.category, cloned.category);
-        assert_eq!(schema.description, cloned.description);
-    }
-
-    // Tests for BitcoinConfigFile
-
-    #[test]
-    fn bitcoin_config_file_new_creates_with_defaults() {
+    fn save_and_reload() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bitcoin.conf");
 
-        let config = BitcoinConfigFile::new(&path);
+        let mut config = BitcoinConfig::new();
+        config.path = Some(path.clone());
+        config.core.txindex = Some(true);
+        config.core.dbcache = Some(1000);
+        config.rpc.server = Some(true);
+        config.rpc.rpcport = Some(8332);
+        config.save().unwrap();
 
-        assert_eq!(config.path, path);
-        assert!(!config.entries.is_empty());
+        let reloaded = BitcoinConfig::open(&path).unwrap();
 
-        // All entries should be disabled
-        for entry in &config.entries {
-            assert!(!entry.enabled);
-            assert!(entry.schema.is_some());
-        }
+        assert_eq!(reloaded.core.txindex, Some(true));
+        assert_eq!(reloaded.core.dbcache, Some(1000));
+        assert_eq!(reloaded.rpc.server, Some(true));
+        assert_eq!(reloaded.rpc.rpcport, Some(8332));
     }
 
     #[test]
-    fn bitcoin_config_file_open_parses_file() {
-        let (_dir, path) = create_temp_config("txindex=1\nserver=1\n");
-
-        let config = BitcoinConfigFile::open(&path).unwrap();
-
-        let txindex = config.get("txindex").unwrap();
-        assert_eq!(txindex.value, "1");
-        assert!(txindex.enabled);
-
-        let server = config.get("server").unwrap();
-        assert_eq!(server.value, "1");
-        assert!(server.enabled);
-    }
-
-    #[test]
-    fn bitcoin_config_file_open_non_existent_returns_defaults() {
-        let path = Path::new("/non/existent/path/bitcoin.conf");
-
-        let config = BitcoinConfigFile::open(path).unwrap();
-
-        assert!(!config.entries.is_empty());
-        // All entries should be disabled
-        for entry in &config.entries {
-            assert!(!entry.enabled);
-        }
-    }
-
-    #[test]
-    fn bitcoin_config_file_get_returns_entry() {
+    fn save_to_different_path() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let config = BitcoinConfigFile::new(&path);
+        let new_path = dir.path().join("subdir/bitcoin_backup.conf");
 
-        let entry = config.get("txindex");
-        assert!(entry.is_some());
-        assert_eq!(entry.unwrap().key, "txindex");
+        let mut config = BitcoinConfig::new();
+        config.core.txindex = Some(true);
 
-        let nonexistent = config.get("nonexistent");
-        assert!(nonexistent.is_none());
+        config.save_to(&new_path).unwrap();
+
+        assert!(new_path.exists());
+
+        let reloaded = BitcoinConfig::open(&new_path).unwrap();
+        assert_eq!(reloaded.core.txindex, Some(true));
     }
 
     #[test]
-    fn bitcoin_config_file_set_updates_value() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let mut config = BitcoinConfigFile::new(&path);
-
-        assert!(config.set("txindex", "1"));
-        let entry = config.get("txindex").unwrap();
-        assert_eq!(entry.value, "1");
-        assert!(entry.enabled);
-
-        // Non-existent key returns false
-        assert!(!config.set("nonexistent", "value"));
-    }
-
-    #[test]
-    fn bitcoin_config_file_enable_disable() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let mut config = BitcoinConfigFile::new(&path);
-
-        // Initially disabled
-        assert!(!config.get("txindex").unwrap().enabled);
-
-        // Enable
-        assert!(config.enable("txindex"));
-        assert!(config.get("txindex").unwrap().enabled);
-
-        // Disable
-        assert!(config.disable("txindex"));
-        assert!(!config.get("txindex").unwrap().enabled);
-
-        // Non-existent key returns false
-        assert!(!config.enable("nonexistent"));
-        assert!(!config.disable("nonexistent"));
-    }
-
-    #[test]
-    fn bitcoin_config_file_add_custom() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let mut config = BitcoinConfigFile::new(&path);
-
-        config.add_custom("customkey", "customvalue");
-
-        let entry = config.get("customkey").unwrap();
-        assert_eq!(entry.key, "customkey");
-        assert_eq!(entry.value, "customvalue");
-        assert!(entry.enabled);
-        assert!(entry.schema.is_none());
-
-        // Adding again updates value
-        config.add_custom("customkey", "newvalue");
-        assert_eq!(config.get("customkey").unwrap().value, "newvalue");
-    }
-
-    #[test]
-    fn bitcoin_config_file_remove() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let mut config = BitcoinConfigFile::new(&path);
-
-        config.add_custom("customkey", "value");
-        assert!(config.get("customkey").is_some());
-
-        assert!(config.remove("customkey"));
-        assert!(config.get("customkey").is_none());
-
-        // Removing non-existent returns false
-        assert!(!config.remove("nonexistent"));
-    }
-
-    #[test]
-    fn bitcoin_config_file_enabled_entries() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let mut config = BitcoinConfigFile::new(&path);
-
-        config.set("txindex", "1");
-        config.set("server", "1");
-
-        let enabled = config.enabled_entries();
-        assert_eq!(enabled.len(), 2);
-    }
-
-    #[test]
-    fn bitcoin_config_file_entries_by_category() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let config = BitcoinConfigFile::new(&path);
-
-        let core_entries = config.entries_by_category(ConfigCategory::Core);
-        assert!(!core_entries.is_empty());
-
-        // All returned entries should be Core category
-        for entry in &core_entries {
-            assert_eq!(
-                entry.schema.as_ref().unwrap().category,
-                ConfigCategory::Core
-            );
-        }
-
-        let network_entries = config.entries_by_category(ConfigCategory::Network);
-        assert!(!network_entries.is_empty());
-    }
-
-    #[test]
-    fn bitcoin_config_file_to_config_string() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-        let mut config = BitcoinConfigFile::new(&path);
-
-        config.set("txindex", "1");
-        config.set("server", "1");
+    fn to_config_string_outputs_set_values() {
+        let mut config = BitcoinConfig::new();
+        config.core.txindex = Some(true);
+        config.rpc.server = Some(true);
+        config.core.dbcache = Some(500);
 
         let output = config.to_config_string();
 
         assert!(output.contains("txindex=1"));
         assert!(output.contains("server=1"));
+        assert!(output.contains("dbcache=500"));
         assert!(output.contains("# Core"));
         assert!(output.contains("# RPC"));
     }
 
     #[test]
-    fn bitcoin_config_file_save_and_reload() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
+    fn to_config_string_skips_none_values() {
+        let config = BitcoinConfig::new();
+        let output = config.to_config_string();
 
-        // Create and save config
-        let mut config = BitcoinConfigFile::new(&path);
-        config.set("txindex", "1");
-        config.set("dbcache", "1000");
-        config.set("server", "1");
-        config.set("rpcport", "8332");
-        config.save().unwrap();
-
-        // Reload and verify
-        let reloaded = BitcoinConfigFile::open(&path).unwrap();
-
-        let txindex = reloaded.get("txindex").unwrap();
-        assert_eq!(txindex.value, "1");
-        assert!(txindex.enabled);
-
-        let dbcache = reloaded.get("dbcache").unwrap();
-        assert_eq!(dbcache.value, "1000");
-        assert!(dbcache.enabled);
-
-        let server = reloaded.get("server").unwrap();
-        assert_eq!(server.value, "1");
-        assert!(server.enabled);
-
-        let rpcport = reloaded.get("rpcport").unwrap();
-        assert_eq!(rpcport.value, "8332");
-        assert!(rpcport.enabled);
+        assert!(!output.contains("txindex="));
+        assert!(!output.contains("server="));
     }
 
     #[test]
-    fn bitcoin_config_file_save_to_different_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let original_path = dir.path().join("bitcoin.conf");
-        let new_path = dir.path().join("subdir/bitcoin_backup.conf");
+    fn clone_works() {
+        let mut config = BitcoinConfig::new();
+        config.core.txindex = Some(true);
+        config.rpc.rpcuser = Some("user".to_string());
 
-        let mut config = BitcoinConfigFile::new(&original_path);
-        config.set("txindex", "1");
+        let cloned = config.clone();
 
-        config.save_to(&new_path).unwrap();
-
-        // Verify file was created at new path
-        assert!(new_path.exists());
-
-        let reloaded = BitcoinConfigFile::open(&new_path).unwrap();
-        assert_eq!(reloaded.get("txindex").unwrap().value, "1");
+        assert_eq!(cloned.core.txindex, Some(true));
+        assert_eq!(cloned.rpc.rpcuser, Some("user".to_string()));
     }
 
     #[test]
-    fn bitcoin_config_file_preserves_custom_entries() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
+    fn default_creates_empty_config() {
+        let config = BitcoinConfig::default();
 
-        let mut config = BitcoinConfigFile::new(&path);
-        config.set("txindex", "1");
-        config.add_custom("mycustom", "myvalue");
-        config.save().unwrap();
-
-        let reloaded = BitcoinConfigFile::open(&path).unwrap();
-        let custom = reloaded.get("mycustom").unwrap();
-        assert_eq!(custom.value, "myvalue");
-        assert!(custom.enabled);
-    }
-
-    #[test]
-    fn open_config_function_works() {
-        let (_dir, path) = create_temp_config("txindex=1\n");
-
-        let config = open_config(&path).unwrap();
-        assert_eq!(config.get("txindex").unwrap().value, "1");
-    }
-
-    #[test]
-    fn save_config_function_works() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bitcoin.conf");
-
-        let mut config = BitcoinConfigFile::new(&path);
-        config.set("txindex", "1");
-
-        save_config(&config).unwrap();
-
-        assert!(path.exists());
+        assert!(config.path.is_none());
+        assert!(config.core.txindex.is_none());
+        assert!(config.network.listen.is_none());
+        assert!(config.rpc.server.is_none());
     }
 }
