@@ -1,20 +1,15 @@
 ---
-source: tests/ui_snapshots.rs
+source: src/ui.rs
 expression: terminal.backend()
 ---
 TestBackend {
     buffer: Buffer {
-        area: Rect { x: 0, y: 0, width: 80, height: 25 },
+        area: Rect { x: 0, y: 0, width: 80, height: 20 },
         content: [
             "┌ PDM ──────────────────┐┌ Bitcoin Config ─────────────────────────────────────┐",
             "│Home                   ││Press [Enter] to select a bitcoin.conf file          │",
             "│Bitcoin Config         ││                                                     │",
             "│P2Pool Config          ││                                                     │",
-            "│                       ││                                                     │",
-            "│                       ││                                                     │",
-            "│                       ││                                                     │",
-            "│                       ││                                                     │",
-            "│                       ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",
