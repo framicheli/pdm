@@ -9,19 +9,31 @@ use ratatui::{
 };
 
 pub fn ui(f: &mut Frame, app: &mut App) {
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),    // Main area
+            Constraint::Length(1), // Status bar
+        ])
+        .split(f.area());
+
+    let main_row = outer[0];
+    let status_bar_area = outer[1];
+
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Length(25), // Sidebar
             Constraint::Min(0),     // Main Content
         ])
-        .split(f.area());
+        .split(main_row);
 
     //  Sidebar
     let items = vec![
         ListItem::new("Home"),
         ListItem::new("Bitcoin Config"),
         ListItem::new("P2Pool Config"),
+        ListItem::new("Info"),
     ];
 
     // Highlight the active one
@@ -69,11 +81,59 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 f.render_widget(p, main_area);
             }
         }
+        CurrentScreen::Info => {
+            let p = Paragraph::new("PDM — P2Pool & Bitcoin Config Manager\n\nTemporary text.")
+                .block(Block::default().borders(Borders::ALL).title(" Info "))
+                .wrap(Wrap { trim: true });
+            f.render_widget(p, main_area);
+        }
         CurrentScreen::FileExplorer => {
             render_file_explorer(f, app, main_area);
         }
         _ => {}
     }
+
+    render_status_bar(f, app, status_bar_area);
+}
+
+fn hint(key: &str, desc: &str) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(
+            format!(" {key} "),
+            Style::default().bg(Color::DarkGray).fg(Color::White),
+        ),
+        Span::styled(format!(" {desc}  "), Style::default().fg(Color::DarkGray)),
+    ]
+}
+
+fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
+    let mut spans: Vec<Span> = Vec::new();
+
+    match app.current_screen {
+        CurrentScreen::FileExplorer => {
+            spans.extend(hint("↑↓", "Navigate"));
+            spans.extend(hint("Enter", "Select"));
+            spans.extend(hint("Esc", "Cancel"));
+        }
+        CurrentScreen::BitcoinConfig if app.bitcoin_conf_path.is_some() => {
+            spans.extend(hint("↑↓", "Navigate"));
+            spans.extend(hint("Enter", "Open file"));
+            spans.extend(hint("q", "Quit"));
+        }
+        CurrentScreen::P2PoolConfig if app.p2pool_conf_path.is_some() => {
+            spans.extend(hint("↑↓", "Navigate"));
+            spans.extend(hint("Enter", "Open file"));
+            spans.extend(hint("q", "Quit"));
+        }
+        _ => {
+            spans.extend(hint("↑↓", "Navigate sidebar"));
+            spans.extend(hint("Enter", "Select"));
+            spans.extend(hint("q", "Quit"));
+        }
+    }
+
+    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
+    f.render_widget(bar, area);
 }
 
 fn render_file_explorer(f: &mut Frame, app: &mut App, area: Rect) {

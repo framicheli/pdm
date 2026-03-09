@@ -73,7 +73,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
 
                     KeyCode::Down => {
-                        if app.sidebar_index < 2 {
+                        if app.sidebar_index < 3 {
                             app.sidebar_index += 1;
                             AppAction::ToggleMenu
                         } else {

@@ -12,6 +12,7 @@ pub enum CurrentScreen {
     Home,
     BitcoinConfig,
     P2PoolConfig,
+    Info,
     FileExplorer,
     Exiting,
 }
@@ -63,6 +64,7 @@ impl App {
             0 => self.current_screen = CurrentScreen::Home,
             1 => self.current_screen = CurrentScreen::BitcoinConfig,
             2 => self.current_screen = CurrentScreen::P2PoolConfig,
+            3 => self.current_screen = CurrentScreen::Info,
             _ => {}
         }
     }
