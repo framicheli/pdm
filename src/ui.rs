@@ -5,7 +5,7 @@
 use crate::app::{App, CurrentScreen};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
 pub fn ui(f: &mut Frame, app: &mut App) {
@@ -32,8 +32,12 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     let items = vec![
         ListItem::new("Home"),
         ListItem::new("Bitcoin Config"),
+        ListItem::new("Bitcoin Status"),
         ListItem::new("P2Pool Config"),
-        ListItem::new("Info"),
+        ListItem::new("P2Pool Status"),
+        ListItem::new("LN Config"),
+        ListItem::new("LN Status"),
+        ListItem::new("Shares Market"),
     ];
 
     // Highlight the active one
@@ -68,7 +72,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 f.render_widget(p, main_area);
             }
         }
-
+        CurrentScreen::BitcoinStatus => {
+            render_bitcoin_status_view(f, app, main_area);
+        }
         CurrentScreen::P2PoolConfig => {
             if app.p2pool_conf_path.is_some() {
                 render_p2pool_view(f, app, main_area);
@@ -81,10 +87,30 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 f.render_widget(p, main_area);
             }
         }
-        CurrentScreen::Info => {
-            let p = Paragraph::new("PDM — P2Pool & Bitcoin Config Manager\n\nTemporary text.")
-                .block(Block::default().borders(Borders::ALL).title(" Info "))
-                .wrap(Wrap { trim: true });
+        CurrentScreen::P2PoolStatus => {
+            let p = Paragraph::new("P2Pool Status").block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" P2Pool Status "),
+            );
+            f.render_widget(p, main_area);
+        }
+        CurrentScreen::LNConfig => {
+            let p = Paragraph::new("LN Config")
+                .block(Block::default().borders(Borders::ALL).title(" LN Config "));
+            f.render_widget(p, main_area);
+        }
+        CurrentScreen::LNStatus => {
+            let p = Paragraph::new("LN Status")
+                .block(Block::default().borders(Borders::ALL).title(" LN Status "));
+            f.render_widget(p, main_area);
+        }
+        CurrentScreen::SharesMarket => {
+            let p = Paragraph::new("Share Market").block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Share Market "),
+            );
             f.render_widget(p, main_area);
         }
         CurrentScreen::FileExplorer => {
@@ -106,6 +132,7 @@ fn hint(key: &str, desc: &str) -> Vec<Span<'static>> {
     ]
 }
 
+// Status bar
 fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span> = Vec::new();
 
@@ -125,6 +152,11 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
             spans.extend(hint("Enter", "Open file"));
             spans.extend(hint("q", "Quit"));
         }
+        CurrentScreen::BitcoinStatus => {
+            spans.extend(hint("↑↓", "Navigate sidebar"));
+            spans.extend(hint("←→", "Switch tab"));
+            spans.extend(hint("q", "Quit"));
+        }
         _ => {
             spans.extend(hint("↑↓", "Navigate sidebar"));
             spans.extend(hint("Enter", "Select"));
@@ -136,17 +168,75 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(bar, area);
 }
 
+fn render_bitcoin_status_view(f: &mut Frame, app: &App, area: Rect) {
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4), // Tabs bar
+            Constraint::Min(0),    // Tab content
+        ])
+        .split(area);
+
+    let tabs = Tabs::new(vec!["Chain Info", "System", "Logs", "Peers"])
+        .block(Block::default().borders(Borders::ALL).title(" Info "))
+        .select(app.bitcoin_status_tab)
+        .highlight_style(Style::default().bg(Color::Gray).fg(Color::Black));
+
+    f.render_widget(tabs, outer[0]);
+
+    let content_area = outer[1];
+    match app.bitcoin_status_tab {
+        // Chain Info
+        0 => {
+            let text = "Chain Info";
+            let p = Paragraph::new(text)
+                .block(Block::default().borders(Borders::ALL))
+                .wrap(Wrap { trim: true });
+            f.render_widget(p, content_area);
+        }
+        // System
+        1 => {
+            let text = "System";
+            let p = Paragraph::new(text)
+                .block(Block::default().borders(Borders::ALL))
+                .wrap(Wrap { trim: true });
+            f.render_widget(p, content_area);
+        }
+        // Logs
+        2 => {
+            let text = "Logs";
+            let p = Paragraph::new(text)
+                .block(Block::default().borders(Borders::ALL))
+                .wrap(Wrap { trim: true });
+            f.render_widget(p, content_area);
+        }
+        // Peers
+        3 => {
+            let text = "Peers";
+            let p = Paragraph::new(text)
+                .block(Block::default().borders(Borders::ALL))
+                .wrap(Wrap { trim: true });
+            f.render_widget(p, content_area);
+        }
+        _ => {}
+    }
+}
+
 fn render_file_explorer(f: &mut Frame, app: &mut App, area: Rect) {
     let files: Vec<ListItem> = app
         .explorer
         .files
         .iter()
         .map(|path| {
-            let name = path.file_name().unwrap_or_default().to_string_lossy();
-            let display_name = if path.is_dir() {
-                format!("📁 {}", name)
+            let display_name = if path.ends_with("..") {
+                "📁 ..".to_string()
             } else {
-                format!("📄 {}", name)
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                if path.is_dir() {
+                    format!("📁 {}", name)
+                } else {
+                    format!("📄 {}", name)
+                }
             };
             ListItem::new(display_name)
         })
@@ -293,43 +383,118 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
+    fn make_terminal() -> Terminal<TestBackend> {
+        Terminal::new(TestBackend::new(80, 24)).unwrap()
+    }
+
     #[test]
     fn test_home_screen_render() {
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-
+        let mut terminal = make_terminal();
         let mut app = App::new();
-
         terminal.draw(|f| ui(f, &mut app)).unwrap();
-
         insta::assert_debug_snapshot!(terminal.backend());
     }
 
     #[test]
-    fn test_bitcoin_screen_render() {
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-
+    fn test_bitcoin_config_screen_render() {
+        let mut terminal = make_terminal();
         let mut app = App::new();
         app.sidebar_index = 1;
         app.toggle_menu();
-
         terminal.draw(|f| ui(f, &mut app)).unwrap();
-
         insta::assert_debug_snapshot!(terminal.backend());
     }
 
     #[test]
-    fn test_p2pool_screen_render() {
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-
+    fn test_bitcoin_status_screen_render() {
+        let mut terminal = make_terminal();
         let mut app = App::new();
         app.sidebar_index = 2;
         app.toggle_menu();
-
         terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
 
+    #[test]
+    fn test_bitcoin_status_tab_system_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 2;
+        app.toggle_menu();
+        app.bitcoin_status_tab = 1;
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_bitcoin_status_tab_logs_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 2;
+        app.toggle_menu();
+        app.bitcoin_status_tab = 2;
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_bitcoin_status_tab_peers_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 2;
+        app.toggle_menu();
+        app.bitcoin_status_tab = 3;
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_p2pool_config_screen_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 3;
+        app.toggle_menu();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_p2pool_status_screen_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 4;
+        app.toggle_menu();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_ln_config_screen_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 5;
+        app.toggle_menu();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_ln_status_screen_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 6;
+        app.toggle_menu();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_shares_market_screen_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 7;
+        app.toggle_menu();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!(terminal.backend());
     }
 }
