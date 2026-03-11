@@ -134,7 +134,7 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 // Home
-fn render_home_view(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_home_view(f: &mut Frame, _app: &mut App, area: Rect) {
     let p = Paragraph::new("Welcome to PDM.\n\nSelect a config from the sidebar to edit.")
         .block(Block::default().borders(Borders::ALL).title(" Home "))
         .wrap(Wrap { trim: true });
@@ -338,7 +338,7 @@ fn render_p2pool_view(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 // P2Pool Status
-fn render_p2pool_status_view(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_p2pool_status_view(f: &mut Frame, _app: &mut App, area: Rect) {
     let p = Paragraph::new("P2Pool Status").block(
         Block::default()
             .borders(Borders::ALL)
@@ -348,21 +348,21 @@ fn render_p2pool_status_view(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 // LN Config
-fn render_ln_config_view(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_ln_config_view(f: &mut Frame, _app: &mut App, area: Rect) {
     let p = Paragraph::new("LN Config")
         .block(Block::default().borders(Borders::ALL).title(" LN Config "));
     f.render_widget(p, area);
 }
 
 // LN Status
-fn render_ln_status_view(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_ln_status_view(f: &mut Frame, _app: &mut App, area: Rect) {
     let p = Paragraph::new("LN Status")
         .block(Block::default().borders(Borders::ALL).title(" LN Status "));
     f.render_widget(p, area);
 }
 
 // Shares Market
-fn render_shares_market_view(f: &mut Frame, app: &mut App, area: Rect) {
+fn render_shares_market_view(f: &mut Frame, _app: &mut App, area: Rect) {
     let p = Paragraph::new("Share Market").block(
         Block::default()
             .borders(Borders::ALL)
