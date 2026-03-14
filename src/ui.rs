@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::app::{App, CurrentScreen};
+use crate::components::{
+    bitcoin_config_view::BitcoinConfigView, bitcoin_status_view::BitcoinStatusView,
+    file_explorer::FileExplorer, home_view::HomeView, ln_config_view::LNConfigView,
+    ln_status_view::LNStatusView, p2pool_config_view::P2PoolConfigView,
+    p2pool_status_view::P2PoolStatusView, shares_market_view::SharesMarketView,
+    status_bar::StatusBar,
+};
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap},
+    widgets::{Block, Borders, List, ListItem, ListState},
 };
 
 pub fn ui(f: &mut Frame, app: &mut App) {
@@ -55,354 +62,36 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     match app.current_screen {
         CurrentScreen::Home => {
-            render_home_view(f, app, main_area);
+            HomeView::render(f, app, main_area);
         }
         CurrentScreen::BitcoinConfig => {
-            render_bitcoin_view(f, app, main_area);
+            BitcoinConfigView::render(f, app, main_area);
         }
         CurrentScreen::BitcoinStatus => {
-            render_bitcoin_status_view(f, app, main_area);
+            BitcoinStatusView::render(f, app, main_area);
         }
         CurrentScreen::P2PoolConfig => {
-            render_p2pool_view(f, app, main_area);
+            P2PoolConfigView::render(f, app, main_area);
         }
         CurrentScreen::P2PoolStatus => {
-            render_p2pool_status_view(f, app, main_area);
+            P2PoolStatusView::render(f, app, main_area);
         }
         CurrentScreen::LNConfig => {
-            render_ln_config_view(f, app, main_area);
+            LNConfigView::render(f, app, main_area);
         }
         CurrentScreen::LNStatus => {
-            render_ln_status_view(f, app, main_area);
+            LNStatusView::render(f, app, main_area);
         }
         CurrentScreen::SharesMarket => {
-            render_shares_market_view(f, app, main_area);
+            SharesMarketView::render(f, app, main_area);
         }
         CurrentScreen::FileExplorer => {
-            render_file_explorer(f, app, main_area);
+            FileExplorer::render(f, app, main_area);
         }
         _ => {}
     }
 
-    render_status_bar(f, app, status_bar_area);
-}
-
-fn hint(key: &str, desc: &str) -> Vec<Span<'static>> {
-    vec![
-        Span::styled(
-            format!(" {key} "),
-            Style::default().bg(Color::DarkGray).fg(Color::White),
-        ),
-        Span::styled(format!(" {desc}  "), Style::default().fg(Color::DarkGray)),
-    ]
-}
-
-// Status bar
-fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
-    let mut spans: Vec<Span> = Vec::new();
-
-    match app.current_screen {
-        CurrentScreen::FileExplorer => {
-            spans.extend(hint("↑↓", "Navigate"));
-            spans.extend(hint("Enter", "Select"));
-            spans.extend(hint("Esc", "Cancel"));
-        }
-        CurrentScreen::BitcoinConfig if app.bitcoin_conf_path.is_some() => {
-            spans.extend(hint("↑↓", "Navigate"));
-            spans.extend(hint("Enter", "Open file"));
-            spans.extend(hint("q", "Quit"));
-        }
-        CurrentScreen::P2PoolConfig if app.p2pool_conf_path.is_some() => {
-            spans.extend(hint("↑↓", "Navigate"));
-            spans.extend(hint("Enter", "Open file"));
-            spans.extend(hint("q", "Quit"));
-        }
-        CurrentScreen::BitcoinStatus => {
-            spans.extend(hint("↑↓", "Navigate sidebar"));
-            spans.extend(hint("←→", "Switch tab"));
-            spans.extend(hint("q", "Quit"));
-        }
-        _ => {
-            spans.extend(hint("↑↓", "Navigate sidebar"));
-            spans.extend(hint("Enter", "Select"));
-            spans.extend(hint("q", "Quit"));
-        }
-    }
-
-    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
-    f.render_widget(bar, area);
-}
-
-// Home
-fn render_home_view(f: &mut Frame, _app: &mut App, area: Rect) {
-    let p = Paragraph::new("Welcome to PDM.\n\nSelect a config from the sidebar to edit.")
-        .block(Block::default().borders(Borders::ALL).title(" Home "))
-        .wrap(Wrap { trim: true });
-    f.render_widget(p, area);
-}
-
-// Bitcoin Config
-fn render_bitcoin_view(f: &mut Frame, app: &mut App, area: Rect) {
-    if app.bitcoin_conf_path.is_some() {
-        let items: Vec<ListItem> = app
-            .bitcoin_data
-            .iter()
-            .map(|entry| {
-                let style = if entry.enabled {
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                };
-
-                let content = Line::from(vec![
-                    Span::styled(format!("{} = ", entry.key), style),
-                    Span::styled(&entry.value, style),
-                    if !entry.enabled {
-                        Span::styled(" (disabled)", style)
-                    } else {
-                        Span::raw("")
-                    },
-                ]);
-
-                ListItem::new(content)
-            })
-            .collect();
-
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Bitcoin Configuration "),
-            )
-            .highlight_style(Style::default().bg(Color::Yellow));
-
-        f.render_widget(list, area);
-    } else {
-        let p = Paragraph::new("Press [Enter] to select a bitcoin.conf file").block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Bitcoin Config "),
-        );
-        f.render_widget(p, area);
-    }
-}
-
-// Bitcoin Status
-fn render_bitcoin_status_view(f: &mut Frame, app: &App, area: Rect) {
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(4), // Tabs bar
-            Constraint::Min(0),    // Tab content
-        ])
-        .split(area);
-
-    let tabs = Tabs::new(vec!["Chain Info", "System", "Logs", "Peers"])
-        .block(Block::default().borders(Borders::ALL).title(" Info "))
-        .select(app.bitcoin_status_tab)
-        .highlight_style(Style::default().bg(Color::Gray).fg(Color::Black));
-
-    f.render_widget(tabs, outer[0]);
-
-    let content_area = outer[1];
-    match app.bitcoin_status_tab {
-        // Chain Info
-        0 => {
-            let text = "Chain Info";
-            let p = Paragraph::new(text)
-                .block(Block::default().borders(Borders::ALL))
-                .wrap(Wrap { trim: true });
-            f.render_widget(p, content_area);
-        }
-        // System
-        1 => {
-            let text = "System";
-            let p = Paragraph::new(text)
-                .block(Block::default().borders(Borders::ALL))
-                .wrap(Wrap { trim: true });
-            f.render_widget(p, content_area);
-        }
-        // Logs
-        2 => {
-            let text = "Logs";
-            let p = Paragraph::new(text)
-                .block(Block::default().borders(Borders::ALL))
-                .wrap(Wrap { trim: true });
-            f.render_widget(p, content_area);
-        }
-        // Peers
-        3 => {
-            let text = "Peers";
-            let p = Paragraph::new(text)
-                .block(Block::default().borders(Borders::ALL))
-                .wrap(Wrap { trim: true });
-            f.render_widget(p, content_area);
-        }
-        _ => {}
-    }
-}
-
-// P2Pool Config
-fn render_p2pool_view(f: &mut Frame, app: &mut App, area: Rect) {
-    if app.p2pool_conf_path.is_some() {
-        let mut items: Vec<ListItem> = Vec::new();
-
-        if let Some(cfg) = &app.p2pool_config {
-            // STRATUM
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("hostname = {}", cfg.stratum.hostname)),
-            ])));
-
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("port = {}", cfg.stratum.port)),
-            ])));
-
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!(
-                    "start_difficulty = {}",
-                    cfg.stratum.start_difficulty
-                )),
-            ])));
-
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[stratum] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!(
-                    "minimum_difficulty = {}",
-                    cfg.stratum.minimum_difficulty
-                )),
-            ])));
-
-            // BITCOIN RPC
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[bitcoinrpc] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("url = {}", cfg.bitcoinrpc.url)),
-            ])));
-
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[bitcoinrpc] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("username = {}", cfg.bitcoinrpc.username)),
-            ])));
-
-            // NETWORK
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[network] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("listen_address = {}", cfg.network.listen_address)),
-            ])));
-
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[network] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!(
-                    "max_established_incoming = {}",
-                    cfg.network.max_established_incoming
-                )),
-            ])));
-
-            // STORE
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[store] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("path = {}", cfg.store.path)),
-            ])));
-
-            // API
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[api] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("hostname = {}", cfg.api.hostname)),
-            ])));
-
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled("[api] ", Style::default().fg(Color::Blue)),
-                Span::raw(format!("port = {}", cfg.api.port)),
-            ])));
-        }
-
-        let list = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" P2Pool Configuration "),
-        );
-
-        f.render_widget(list, area);
-    } else {
-        let p = Paragraph::new("Press [Enter] to select a p2poolv2 config file").block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" P2Pool Config "),
-        );
-        f.render_widget(p, area);
-    }
-}
-
-// P2Pool Status
-fn render_p2pool_status_view(f: &mut Frame, _app: &mut App, area: Rect) {
-    let p = Paragraph::new("P2Pool Status").block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" P2Pool Status "),
-    );
-    f.render_widget(p, area);
-}
-
-// LN Config
-fn render_ln_config_view(f: &mut Frame, _app: &mut App, area: Rect) {
-    let p = Paragraph::new("LN Config")
-        .block(Block::default().borders(Borders::ALL).title(" LN Config "));
-    f.render_widget(p, area);
-}
-
-// LN Status
-fn render_ln_status_view(f: &mut Frame, _app: &mut App, area: Rect) {
-    let p = Paragraph::new("LN Status")
-        .block(Block::default().borders(Borders::ALL).title(" LN Status "));
-    f.render_widget(p, area);
-}
-
-// Shares Market
-fn render_shares_market_view(f: &mut Frame, _app: &mut App, area: Rect) {
-    let p = Paragraph::new("Share Market").block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Share Market "),
-    );
-    f.render_widget(p, area);
-}
-
-// File Explorer
-fn render_file_explorer(f: &mut Frame, app: &mut App, area: Rect) {
-    let files: Vec<ListItem> = app
-        .explorer
-        .files
-        .iter()
-        .map(|path| {
-            let display_name = if path.ends_with("..") {
-                "📁 ..".to_string()
-            } else {
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if path.is_dir() {
-                    format!("📁 {}", name)
-                } else {
-                    format!("📄 {}", name)
-                }
-            };
-            ListItem::new(display_name)
-        })
-        .collect();
-
-    let mut state = ListState::default();
-    state.select(Some(app.explorer.selected_index));
-
-    let title = format!(" Select File (Current: {:?}) ", app.explorer.current_dir);
-
-    let list = List::new(files)
-        .block(Block::default().borders(Borders::ALL).title(title))
-        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
-        .highlight_symbol(">> ");
-
-    f.render_stateful_widget(list, area, &mut state);
+    StatusBar::render(f, app, status_bar_area);
 }
 
 #[cfg(test)]
