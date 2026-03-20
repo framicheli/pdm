@@ -18,10 +18,10 @@ impl SharesMarketView {
 
     // LN Status
     pub fn render(f: &mut Frame, _app: &mut App, area: Rect) {
-        let p = Paragraph::new("Share Market").block(
+        let p = Paragraph::new("Shares Market").block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Share Market "),
+                .title(" Shares Market "),
         );
         f.render_widget(p, area);
     }

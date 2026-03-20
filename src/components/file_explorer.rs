@@ -180,8 +180,7 @@ impl FileExplorer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    //use std::env::temp_dir;
-    use std::fs::File; //{ , create_dir};
+    use std::fs::File;
 
     fn setup_temp_fs() -> PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
