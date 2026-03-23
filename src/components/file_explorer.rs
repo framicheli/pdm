@@ -2,8 +2,12 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::app::AppAction;
+use crate::app::{App, AppAction};
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, List, ListItem, ListState},
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -138,13 +142,45 @@ impl FileExplorer {
             _ => AppAction::None,
         }
     }
+
+    pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
+        let files: Vec<ListItem> = app
+            .explorer
+            .files
+            .iter()
+            .map(|path| {
+                let display_name = if path.ends_with("..") {
+                    "📁 ..".to_string()
+                } else {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    if path.is_dir() {
+                        format!("📁 {}", name)
+                    } else {
+                        format!("📄 {}", name)
+                    }
+                };
+                ListItem::new(display_name)
+            })
+            .collect();
+
+        let mut state = ListState::default();
+        state.select(Some(app.explorer.selected_index));
+
+        let title = format!(" Select File (Current: {:?}) ", app.explorer.current_dir);
+
+        let list = List::new(files)
+            .block(Block::default().borders(Borders::ALL).title(title))
+            .highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
+            .highlight_symbol(">> ");
+
+        f.render_stateful_widget(list, area, &mut state);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env::temp_dir;
-    use std::fs::{File, create_dir};
+    use std::fs::File;
 
     fn setup_temp_fs() -> PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};

@@ -60,6 +60,38 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
             let action = match app.current_screen {
                 CurrentScreen::FileExplorer => app.explorer.handle_input(key),
 
+                CurrentScreen::BitcoinStatus => match key.code {
+                    KeyCode::Left => {
+                        if app.bitcoin_status_tab > 0 {
+                            app.bitcoin_status_tab -= 1;
+                        }
+                        AppAction::None
+                    }
+                    KeyCode::Right => {
+                        if app.bitcoin_status_tab < 3 {
+                            app.bitcoin_status_tab += 1;
+                        }
+                        AppAction::None
+                    }
+                    KeyCode::Up => {
+                        if app.sidebar_index > 0 {
+                            app.sidebar_index -= 1;
+                            AppAction::ToggleMenu
+                        } else {
+                            AppAction::None
+                        }
+                    }
+                    KeyCode::Down => {
+                        if app.sidebar_index < 3 {
+                            app.sidebar_index += 1;
+                            AppAction::ToggleMenu
+                        } else {
+                            AppAction::None
+                        }
+                    }
+                    _ => AppAction::None,
+                },
+
                 _ => match key.code {
                     KeyCode::Enter => {
                         if matches!(
@@ -73,7 +105,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
 
                     KeyCode::Down => {
-                        if app.sidebar_index < 2 {
+                        if app.sidebar_index < 7 {
                             app.sidebar_index += 1;
                             AppAction::ToggleMenu
                         } else {

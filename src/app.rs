@@ -11,7 +11,12 @@ use std::path::PathBuf;
 pub enum CurrentScreen {
     Home,
     BitcoinConfig,
+    BitcoinStatus,
     P2PoolConfig,
+    P2PoolStatus,
+    LNConfig,
+    LNStatus,
+    SharesMarket,
     FileExplorer,
     Exiting,
 }
@@ -41,6 +46,7 @@ pub struct App {
     pub explorer: FileExplorer,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
+    pub bitcoin_status_tab: usize,
 }
 
 impl App {
@@ -54,6 +60,7 @@ impl App {
             explorer: FileExplorer::new(),
             p2pool_config: None,
             bitcoin_data: Vec::new(),
+            bitcoin_status_tab: 0,
         }
     }
 
@@ -62,7 +69,12 @@ impl App {
         match self.sidebar_index {
             0 => self.current_screen = CurrentScreen::Home,
             1 => self.current_screen = CurrentScreen::BitcoinConfig,
-            2 => self.current_screen = CurrentScreen::P2PoolConfig,
+            2 => self.current_screen = CurrentScreen::BitcoinStatus,
+            3 => self.current_screen = CurrentScreen::P2PoolConfig,
+            4 => self.current_screen = CurrentScreen::P2PoolStatus,
+            5 => self.current_screen = CurrentScreen::LNConfig,
+            6 => self.current_screen = CurrentScreen::LNStatus,
+            7 => self.current_screen = CurrentScreen::SharesMarket,
             _ => {}
         }
     }

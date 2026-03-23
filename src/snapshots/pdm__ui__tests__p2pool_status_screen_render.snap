@@ -6,10 +6,10 @@ TestBackend {
     buffer: Buffer {
         area: Rect { x: 0, y: 0, width: 80, height: 24 },
         content: [
-            "┌ PDM ──────────────────┐┌ Home ───────────────────────────────────────────────┐",
-            "│Home                   ││Welcome to PDM.                                      │",
+            "┌ PDM ──────────────────┐┌ P2Pool Status ──────────────────────────────────────┐",
+            "│Home                   ││P2Pool Status                                        │",
             "│Bitcoin Config         ││                                                     │",
-            "│Bitcoin Status         ││Select a config from the sidebar to edit.            │",
+            "│Bitcoin Status         ││                                                     │",
             "│P2Pool Config          ││                                                     │",
             "│P2Pool Status          ││                                                     │",
             "│LN Config              ││                                                     │",
@@ -33,8 +33,8 @@ TestBackend {
         ],
         styles: [
             x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-            x: 1, y: 1, fg: Black, bg: Gray, underline: Reset, modifier: NONE,
-            x: 24, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+            x: 1, y: 5, fg: Black, bg: Gray, underline: Reset, modifier: NONE,
+            x: 24, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
             x: 0, y: 23, fg: White, bg: DarkGray, underline: Reset, modifier: NONE,
             x: 4, y: 23, fg: DarkGray, bg: Black, underline: Reset, modifier: NONE,
             x: 23, y: 23, fg: White, bg: DarkGray, underline: Reset, modifier: NONE,
