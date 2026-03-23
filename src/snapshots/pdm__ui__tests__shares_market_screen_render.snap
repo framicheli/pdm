@@ -6,8 +6,8 @@ TestBackend {
     buffer: Buffer {
         area: Rect { x: 0, y: 0, width: 80, height: 24 },
         content: [
-            "┌ PDM ──────────────────┐┌ Share Market ───────────────────────────────────────┐",
-            "│Home                   ││Share Market                                         │",
+            "┌ PDM ──────────────────┐┌ Shares Market ──────────────────────────────────────┐",
+            "│Home                   ││Shares Market                                        │",
             "│Bitcoin Config         ││                                                     │",
             "│Bitcoin Status         ││                                                     │",
             "│P2Pool Config          ││                                                     │",
