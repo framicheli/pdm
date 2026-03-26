@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::components::bitcoin_status_view::chain_info::ChainInfo;
 use crate::components::file_explorer::FileExplorer;
 use crate::config::ConfigEntry as BitcoinEntry;
 use p2poolv2_config::Config as P2PoolConfig;
@@ -46,6 +47,7 @@ pub struct App {
     pub explorer: FileExplorer,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
+    pub chain_info: ChainInfo,
     pub bitcoin_status_tab: usize,
 }
 
@@ -60,6 +62,7 @@ impl App {
             explorer: FileExplorer::new(),
             p2pool_config: None,
             bitcoin_data: Vec::new(),
+            chain_info: ChainInfo::new(),
             bitcoin_status_tab: 0,
         }
     }

@@ -1392,6 +1392,8 @@ dependencies = [
  "insta",
  "p2poolv2_config",
  "ratatui",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

@@ -138,7 +138,12 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
     match action {
         AppAction::Quit => return Ok(true),
 
-        AppAction::ToggleMenu => app.toggle_menu(),
+        AppAction::ToggleMenu => {
+            app.toggle_menu();
+            if app.current_screen == CurrentScreen::BitcoinStatus {
+                app.chain_info.fetch();
+            }
+        }
 
         AppAction::OpenExplorer(trigger) => {
             app.explorer_trigger = Some(trigger);

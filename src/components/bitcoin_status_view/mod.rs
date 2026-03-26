@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+pub mod chain_info;
+
 use crate::app::App;
+use chain_info::ChainInfo;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Tabs, Wrap},
@@ -36,11 +39,7 @@ impl BitcoinStatusView {
         match app.bitcoin_status_tab {
             // Chain Info
             0 => {
-                let text = "Chain Info";
-                let p = Paragraph::new(text)
-                    .block(Block::default().borders(Borders::ALL))
-                    .wrap(Wrap { trim: true });
-                f.render_widget(p, content_area);
+                ChainInfo::render(f, app, content_area);
             }
             // System
             1 => {
