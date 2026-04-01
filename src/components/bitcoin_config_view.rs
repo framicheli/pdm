@@ -16,6 +16,8 @@ pub struct BitcoinConfigView {
     pub editing: bool,
     pub edit_input: String,
     pub save_message: Option<String>,
+    pub warning_message: Option<String>,
+    pub sidebar_focused: bool,
 }
 
 impl BitcoinConfigView {
@@ -25,6 +27,8 @@ impl BitcoinConfigView {
             editing: false,
             edit_input: String::new(),
             save_message: None,
+            warning_message: None,
+            sidebar_focused: true,
         }
     }
 
@@ -79,7 +83,10 @@ impl BitcoinConfigView {
                 KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     AppAction::SaveBitcoinConfig
                 }
-                KeyCode::Esc => AppAction::CloseModal,
+                KeyCode::Esc => {
+                    self.sidebar_focused = true;
+                    AppAction::None
+                }
                 _ => AppAction::None,
             }
         }

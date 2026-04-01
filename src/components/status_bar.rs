@@ -43,6 +43,9 @@ impl StatusBar {
                 } else if app.bitcoin_config_view.editing {
                     spans.extend(hint("Enter", "Confirm"));
                     spans.extend(hint("Esc", "Cancel"));
+                } else if app.bitcoin_config_view.sidebar_focused {
+                    spans.extend(hint("↑↓", "Navigate sidebar"));
+                    spans.extend(hint("Enter", "Focus config"));
                 } else {
                     spans.extend(hint("↑↓", "Navigate"));
                     spans.extend(hint("Enter", "Edit"));
@@ -56,9 +59,16 @@ impl StatusBar {
                 spans.extend(hint("q", "Quit"));
             }
             CurrentScreen::BitcoinConfig => {
-                spans.extend(hint("↑↓", "Navigate sidebar"));
-                spans.extend(hint("Enter", "Open file"));
-                spans.extend(hint("Esc", "Back"));
+                if let Some(msg) = &app.bitcoin_config_view.warning_message {
+                    spans.push(Span::styled(
+                        format!(" ⚠ {}  ", msg),
+                        Style::default().fg(Color::Yellow),
+                    ));
+                } else {
+                    spans.extend(hint("↑↓", "Navigate sidebar"));
+                    spans.extend(hint("Enter", "Open file"));
+                    spans.extend(hint("Esc", "Back"));
+                }
             }
             CurrentScreen::BitcoinStatus => {
                 spans.extend(hint("↑↓", "Navigate sidebar"));

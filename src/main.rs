@@ -94,11 +94,40 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
 
                 CurrentScreen::BitcoinConfig => {
                     if app.bitcoin_conf_path.is_some() {
-                        let entries = &app.bitcoin_data;
-                        app.bitcoin_config_view.handle_input(key, entries)
+                        if app.bitcoin_config_view.sidebar_focused {
+                            match key.code {
+                                KeyCode::Up => {
+                                    if app.sidebar_index > 0 {
+                                        app.sidebar_index -= 1;
+                                        AppAction::ToggleMenu
+                                    } else {
+                                        AppAction::None
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    if app.sidebar_index < 7 {
+                                        app.sidebar_index += 1;
+                                        AppAction::ToggleMenu
+                                    } else {
+                                        AppAction::None
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    app.bitcoin_config_view.sidebar_focused = false;
+                                    AppAction::None
+                                }
+                                _ => AppAction::None,
+                            }
+                        } else {
+                            let entries = &app.bitcoin_data;
+                            app.bitcoin_config_view.handle_input(key, entries)
+                        }
                     } else {
                         match key.code {
-                            KeyCode::Enter => AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+                            KeyCode::Enter => {
+                                app.bitcoin_config_view.warning_message = None;
+                                AppAction::OpenExplorer(CurrentScreen::BitcoinConfig)
+                            }
                             KeyCode::Esc => AppAction::CloseModal,
                             KeyCode::Up => {
                                 if app.sidebar_index > 0 {
@@ -187,11 +216,22 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                         app.current_screen = CurrentScreen::P2PoolConfig;
                     }
                     CurrentScreen::BitcoinConfig => {
-                        app.bitcoin_conf_path = Some(path.clone());
-                        if let Ok(entries) = parse_bitcoin_config(&path) {
+                        let entries = parse_bitcoin_config(&path).unwrap_or_default();
+                        let has_known_keys =
+                            entries.iter().any(|e| e.enabled && e.schema.is_some());
+
+                        if has_known_keys {
+                            app.bitcoin_conf_path = Some(path.clone());
                             app.bitcoin_data = entries;
+                            app.current_screen = CurrentScreen::BitcoinConfig;
+                            app.bitcoin_config_view.sidebar_focused = false;
+                            app.bitcoin_config_view.warning_message = None;
+                        } else {
+                            app.bitcoin_config_view.warning_message = Some(
+                                "File does not appear to be a Bitcoin config. Select another file."
+                                    .to_string(),
+                            );
                         }
-                        app.current_screen = CurrentScreen::BitcoinConfig;
                     }
                     _ => {}
                 }
@@ -279,7 +319,6 @@ mod tests {
     #[test]
     fn test_file_explorer_wrap_and_select_sets_config() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-        use std::fs::File;
         use tempfile::tempdir;
 
         // Create isolated temporary directory
@@ -288,7 +327,7 @@ mod tests {
 
         // Create a fake bitcoin.conf file
         let file_path = base.join("bitcoin.conf");
-        File::create(&file_path).unwrap();
+        std::fs::write(&file_path, "rpcuser=test\n").unwrap();
 
         let backend = TestBackend::new(80, 25);
         let mut terminal = Terminal::new(backend).unwrap();
