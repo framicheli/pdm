@@ -9,6 +9,54 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
+use std::path::Path;
+
+/// Shortens a path to fit within `max_len` characters.
+/// Replaces the home directory with `~`, then collapses the middle
+/// to `…` if still too long, always keeping the filename visible.
+fn shorten_path(path: &Path, max_len: usize) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let full = path.to_string_lossy().into_owned();
+
+    let s = if !home.is_empty() && full.starts_with(&home) {
+        format!("~{}", &full[home.len()..])
+    } else {
+        full
+    };
+
+    if s.len() <= max_len {
+        return s;
+    }
+
+    let p = Path::new(&s);
+    let filename = p
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_else(|| s.clone());
+    let parent_name = p
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|f| f.to_string_lossy().into_owned());
+    let prefix = if s.starts_with('~') { "~" } else { "" };
+
+    // Try ~/…/parent/filename
+    if let Some(ref parent) = parent_name {
+        let candidate = format!("{}/\u{2026}/{}/{}", prefix, parent, filename);
+        if candidate.len() <= max_len {
+            return candidate;
+        }
+    }
+
+    // Try ~/…/filename
+    let candidate = format!("{}/\u{2026}/{}", prefix, filename);
+    if candidate.len() <= max_len {
+        return candidate;
+    }
+
+    // Last resort: truncate the right side
+    let avail = max_len.saturating_sub(1);
+    format!("\u{2026}{}", &s[s.len().saturating_sub(avail)..])
+}
 
 #[derive(Debug, Clone)]
 pub struct BitcoinConfigView {
@@ -158,12 +206,16 @@ impl BitcoinConfigView {
         let mut list_state = ListState::default();
         list_state.select(Some(app.bitcoin_config_view.selected_index));
 
+        // " Bitcoin Configuration ---  " = 28 chars fixed, 2 for borders
+        const FIXED: usize = 30;
+        let path_max = (panels[0].width as usize).saturating_sub(FIXED);
+        let title = match &app.bitcoin_conf_path {
+            Some(path) => format!(" Bitcoin Configuration --- {} ", shorten_path(path, path_max)),
+            None => " Bitcoin Configuration ".to_string(),
+        };
+
         let list = List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Bitcoin Configuration "),
-            )
+            .block(Block::default().borders(Borders::ALL).title(title))
             .highlight_style(Style::default().bg(Color::DarkGray));
 
         f.render_stateful_widget(list, panels[0], &mut list_state);

@@ -64,6 +64,7 @@ impl StatusBar {
                         format!(" ⚠ {}  ", msg),
                         Style::default().fg(Color::Yellow),
                     ));
+                    spans.extend(hint("Enter", "Try again"));
                 } else {
                     spans.extend(hint("↑↓", "Navigate sidebar"));
                     spans.extend(hint("Enter", "Open file"));

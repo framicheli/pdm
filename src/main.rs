@@ -231,6 +231,7 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                                 "File does not appear to be a Bitcoin config. Select another file."
                                     .to_string(),
                             );
+                            app.current_screen = CurrentScreen::BitcoinConfig;
                         }
                     }
                     _ => {}
