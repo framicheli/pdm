@@ -31,6 +31,7 @@ impl StatusBar {
             CurrentScreen::FileExplorer => {
                 spans.extend(hint("↑↓", "Navigate"));
                 spans.extend(hint("Enter", "Select"));
+                spans.extend(hint("⌫", "Parent folder"));
                 spans.extend(hint("Esc", "Cancel"));
             }
             CurrentScreen::BitcoinConfig if app.bitcoin_conf_path.is_some() => {

@@ -138,6 +138,13 @@ impl FileExplorer {
                 }
                 AppAction::None
             }
+            KeyCode::Backspace => {
+                if let Some(parent) = self.current_dir.parent() {
+                    self.current_dir = parent.to_path_buf();
+                    self.load_directory();
+                }
+                AppAction::None
+            }
             KeyCode::Esc => AppAction::CloseModal,
             _ => AppAction::None,
         }
