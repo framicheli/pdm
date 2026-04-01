@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::bitcoin_config::ConfigEntry as BitcoinEntry;
 use crate::components::file_explorer::FileExplorer;
-use crate::config::ConfigEntry as BitcoinEntry;
 use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
 

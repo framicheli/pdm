@@ -5,7 +5,7 @@
 use p2poolv2_config::Config as P2PoolConfig;
 use pdm::app::AppAction;
 use pdm::app::{App, CurrentScreen};
-use pdm::config::parse_config as parse_bitcoin_config;
+use pdm::bitcoin_config::parse_config as parse_bitcoin_config;
 use pdm::ui;
 
 use anyhow::Result;
@@ -146,12 +146,8 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
         }
 
         AppAction::CloseModal => {
-            if let Some(trigger) = &app.explorer_trigger {
-                app.current_screen = trigger.clone();
-            } else {
-                app.toggle_menu();
-            }
             app.explorer_trigger = None;
+            app.toggle_menu();
         }
 
         AppAction::FileSelected(path) => {
@@ -297,9 +293,10 @@ mod tests {
     }
 
     #[test]
-    fn app_action_close_modal_returns_to_trigger_screen() {
+    fn app_action_close_modal_returns_to_sidebar() {
         let mut app = App::new();
 
+        app.sidebar_index = 1; // Bitcoin Config
         app.explorer_trigger = Some(CurrentScreen::BitcoinConfig);
         app.current_screen = CurrentScreen::FileExplorer;
 
