@@ -35,14 +35,30 @@ impl StatusBar {
                 spans.extend(hint("Esc", "Cancel"));
             }
             CurrentScreen::BitcoinConfig if app.bitcoin_conf_path.is_some() => {
-                spans.extend(hint("↑↓", "Navigate"));
-                spans.extend(hint("Enter", "Open file"));
-                spans.extend(hint("q", "Quit"));
+                if let Some(msg) = &app.bitcoin_config_view.save_message {
+                    spans.push(Span::styled(
+                        format!(" ✓ {}  ", msg),
+                        Style::default().fg(Color::Green),
+                    ));
+                } else if app.bitcoin_config_view.editing {
+                    spans.extend(hint("Enter", "Confirm"));
+                    spans.extend(hint("Esc", "Cancel"));
+                } else {
+                    spans.extend(hint("↑↓", "Navigate"));
+                    spans.extend(hint("Enter", "Edit"));
+                    spans.extend(hint("Ctrl+S", "Save"));
+                    spans.extend(hint("Esc", "Back"));
+                }
             }
             CurrentScreen::P2PoolConfig if app.p2pool_conf_path.is_some() => {
                 spans.extend(hint("↑↓", "Navigate"));
                 spans.extend(hint("Enter", "Open file"));
                 spans.extend(hint("q", "Quit"));
+            }
+            CurrentScreen::BitcoinConfig => {
+                spans.extend(hint("↑↓", "Navigate sidebar"));
+                spans.extend(hint("Enter", "Open file"));
+                spans.extend(hint("Esc", "Back"));
             }
             CurrentScreen::BitcoinStatus => {
                 spans.extend(hint("↑↓", "Navigate sidebar"));

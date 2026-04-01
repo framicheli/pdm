@@ -1379,6 +1379,18 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     Ok(entries)
 }
 
+/// Writes enabled entries back to the config file as `key=value` lines.
+pub fn save_config(path: &Path, entries: &[ConfigEntry]) -> Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(path)?;
+    for entry in entries {
+        if entry.enabled {
+            writeln!(file, "{}={}", entry.key, entry.value)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

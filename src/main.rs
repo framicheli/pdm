@@ -5,7 +5,7 @@
 use p2poolv2_config::Config as P2PoolConfig;
 use pdm::app::AppAction;
 use pdm::app::{App, CurrentScreen};
-use pdm::bitcoin_config::parse_config as parse_bitcoin_config;
+use pdm::bitcoin_config::{parse_config as parse_bitcoin_config, save_config as save_bitcoin_config};
 use pdm::ui;
 
 use anyhow::Result;
@@ -92,12 +92,38 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     _ => AppAction::None,
                 },
 
+                CurrentScreen::BitcoinConfig => {
+                    if app.bitcoin_conf_path.is_some() {
+                        let entries = &app.bitcoin_data;
+                        app.bitcoin_config_view.handle_input(key, entries)
+                    } else {
+                        match key.code {
+                            KeyCode::Enter => AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+                            KeyCode::Esc => AppAction::CloseModal,
+                            KeyCode::Up => {
+                                if app.sidebar_index > 0 {
+                                    app.sidebar_index -= 1;
+                                    AppAction::ToggleMenu
+                                } else {
+                                    AppAction::None
+                                }
+                            }
+                            KeyCode::Down => {
+                                if app.sidebar_index < 7 {
+                                    app.sidebar_index += 1;
+                                    AppAction::ToggleMenu
+                                } else {
+                                    AppAction::None
+                                }
+                            }
+                            _ => AppAction::None,
+                        }
+                    }
+                }
+
                 _ => match key.code {
                     KeyCode::Enter => {
-                        if matches!(
-                            app.current_screen,
-                            CurrentScreen::BitcoinConfig | CurrentScreen::P2PoolConfig
-                        ) {
+                        if matches!(app.current_screen, CurrentScreen::P2PoolConfig) {
                             AppAction::OpenExplorer(app.current_screen.clone())
                         } else {
                             AppAction::None
@@ -175,6 +201,21 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
 
         AppAction::Navigate(screen) => {
             app.current_screen = screen;
+        }
+
+        AppAction::CommitEdit(index, value) => {
+            if index < app.bitcoin_data.len() {
+                app.bitcoin_data[index].value = value;
+                app.bitcoin_data[index].enabled = true;
+            }
+        }
+
+        AppAction::SaveBitcoinConfig => {
+            if let Some(path) = app.bitcoin_conf_path.clone() {
+                save_bitcoin_config(&path, &app.bitcoin_data)?;
+                app.bitcoin_config_view.save_message =
+                    Some("Configuration correctly saved".to_string());
+            }
         }
 
         AppAction::None => {}
