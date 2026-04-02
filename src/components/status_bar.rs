@@ -49,7 +49,7 @@ impl StatusBar {
                 } else {
                     spans.extend(hint("↑↓", "Navigate"));
                     spans.extend(hint("Enter", "Edit"));
-                    spans.extend(hint("Ctrl+S", "Save"));
+                    spans.extend(hint("s", "Save"));
                     spans.extend(hint("Esc", "Back"));
                 }
             }

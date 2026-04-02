@@ -5,7 +5,9 @@
 use p2poolv2_config::Config as P2PoolConfig;
 use pdm::app::AppAction;
 use pdm::app::{App, CurrentScreen};
-use pdm::bitcoin_config::{parse_config as parse_bitcoin_config, save_config as save_bitcoin_config};
+use pdm::bitcoin_config::{
+    parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
+};
 use pdm::ui;
 
 use anyhow::Result;

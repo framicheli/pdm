@@ -4,7 +4,7 @@
 
 use crate::app::{App, AppAction};
 use crate::bitcoin_config::ConfigEntry;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
@@ -128,9 +128,7 @@ impl BitcoinConfigView {
                     }
                     AppAction::None
                 }
-                KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    AppAction::SaveBitcoinConfig
-                }
+                KeyCode::Char('s') => AppAction::SaveBitcoinConfig,
                 KeyCode::Esc => {
                     self.sidebar_focused = true;
                     AppAction::None
@@ -188,10 +186,7 @@ impl BitcoinConfigView {
                 };
 
                 ListItem::new(vec![
-                    Line::from(Span::styled(
-                        label,
-                        Style::default().fg(Color::Gray),
-                    )),
+                    Line::from(Span::styled(label, Style::default().fg(Color::Gray))),
                     Line::from(vec![
                         Span::styled(
                             format!("{} = ", entry.key),
@@ -210,7 +205,10 @@ impl BitcoinConfigView {
         const FIXED: usize = 30;
         let path_max = (panels[0].width as usize).saturating_sub(FIXED);
         let title = match &app.bitcoin_conf_path {
-            Some(path) => format!(" Bitcoin Configuration --- {} ", shorten_path(path, path_max)),
+            Some(path) => format!(
+                " Bitcoin Configuration --- {} ",
+                shorten_path(path, path_max)
+            ),
             None => " Bitcoin Configuration ".to_string(),
         };
 
