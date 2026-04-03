@@ -398,4 +398,141 @@ mod tests {
 
         assert!(exited);
     }
+
+    #[test]
+    fn commit_edit_updates_entry_value_and_enables_it() {
+        use pdm::bitcoin_config::ConfigEntry;
+
+        let mut app = App::new();
+        app.bitcoin_data = vec![
+            ConfigEntry {
+                key: "rpcuser".to_string(),
+                value: "old".to_string(),
+                enabled: false,
+                schema: None,
+            },
+            ConfigEntry {
+                key: "server".to_string(),
+                value: "0".to_string(),
+                enabled: true,
+                schema: None,
+            },
+        ];
+
+        handle_action(AppAction::CommitEdit(0, "alice".to_string()), &mut app).unwrap();
+
+        assert_eq!(app.bitcoin_data[0].value, "alice");
+        assert!(app.bitcoin_data[0].enabled);
+        // Other entries unchanged
+        assert_eq!(app.bitcoin_data[1].value, "0");
+    }
+
+    #[test]
+    fn commit_edit_out_of_bounds_is_noop() {
+        let mut app = App::new();
+        // bitcoin_data is empty
+        let result = handle_action(AppAction::CommitEdit(5, "val".to_string()), &mut app);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn save_bitcoin_config_writes_file_and_sets_message() {
+        use pdm::bitcoin_config::ConfigEntry;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+
+        let mut app = App::new();
+        app.bitcoin_conf_path = Some(path.clone());
+        app.bitcoin_data = vec![ConfigEntry {
+            key: "rpcuser".to_string(),
+            value: "testuser".to_string(),
+            enabled: true,
+            schema: None,
+        }];
+
+        handle_action(AppAction::SaveBitcoinConfig, &mut app).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("rpcuser=testuser"));
+        assert_eq!(
+            app.bitcoin_config_view.save_message.as_deref(),
+            Some("Configuration correctly saved")
+        );
+    }
+
+    #[test]
+    fn save_bitcoin_config_noop_when_no_path() {
+        let mut app = App::new();
+        // No bitcoin_conf_path set
+        let result = handle_action(AppAction::SaveBitcoinConfig, &mut app);
+        assert!(result.is_ok());
+        assert!(app.bitcoin_config_view.save_message.is_none());
+    }
+
+    #[test]
+    fn navigate_action_changes_screen() {
+        let mut app = App::new();
+        handle_action(AppAction::Navigate(CurrentScreen::BitcoinStatus), &mut app).unwrap();
+        assert_eq!(app.current_screen, CurrentScreen::BitcoinStatus);
+    }
+
+    #[test]
+    fn file_selected_invalid_bitcoin_config_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("not_a_config.conf");
+        // Write a file with no recognized bitcoin config keys
+        std::fs::write(&path, "unknownkey=somevalue\n").unwrap();
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::BitcoinConfig);
+
+        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+
+        assert!(app.bitcoin_config_view.warning_message.is_some());
+        assert!(app.bitcoin_conf_path.is_none());
+        assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
+    }
+
+    #[test]
+    fn bitcoin_config_sidebar_focus_toggle_via_enter() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        std::fs::write(&path, "rpcuser=test\n").unwrap();
+
+        let mut app = App::new();
+        app.sidebar_index = 1;
+        app.toggle_menu();
+        handle_action(
+            AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+            &mut app,
+        )
+        .unwrap();
+
+        app.explorer.current_dir = dir.path().to_path_buf();
+        app.explorer.load_directory();
+
+        // Select the file
+        app.explorer
+            .handle_input(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+        let action = app
+            .explorer
+            .handle_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        handle_action(action, &mut app).unwrap();
+
+        // After file selection, sidebar_focused should be false
+        assert!(!app.bitcoin_config_view.sidebar_focused);
+
+        // Pressing Esc via handle_input should set sidebar_focused back
+        let entries_clone = app.bitcoin_data.clone();
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::empty());
+        app.bitcoin_config_view.handle_input(esc, &entries_clone);
+        assert!(app.bitcoin_config_view.sidebar_focused);
+    }
 }

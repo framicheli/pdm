@@ -93,3 +93,119 @@ impl Default for StatusBar {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{App, CurrentScreen};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn render_status_bar(app: &App) -> String {
+        let backend = TestBackend::new(120, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                StatusBar::render(f, app, area);
+            })
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn file_explorer_shows_navigate_and_cancel() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::FileExplorer;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Navigate"));
+        assert!(output.contains("Cancel"));
+        assert!(output.contains("Parent folder"));
+    }
+
+    #[test]
+    fn bitcoin_config_no_file_shows_open_file() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::BitcoinConfig;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Open file"));
+    }
+
+    #[test]
+    fn bitcoin_config_no_file_with_warning_shows_try_again() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::BitcoinConfig;
+        app.bitcoin_config_view.warning_message =
+            Some("Not a valid config.".to_string());
+        let output = render_status_bar(&app);
+        assert!(output.contains("Not a valid config."));
+        assert!(output.contains("Try again"));
+    }
+
+    #[test]
+    fn bitcoin_config_with_file_sidebar_focused_shows_navigate_sidebar() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::BitcoinConfig;
+        app.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+        app.bitcoin_config_view.sidebar_focused = true;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Navigate sidebar"));
+        assert!(output.contains("Focus config"));
+    }
+
+    #[test]
+    fn bitcoin_config_with_file_editing_shows_confirm_cancel() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::BitcoinConfig;
+        app.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+        app.bitcoin_config_view.sidebar_focused = false;
+        app.bitcoin_config_view.editing = true;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Confirm"));
+        assert!(output.contains("Cancel"));
+    }
+
+    #[test]
+    fn bitcoin_config_with_file_browsing_shows_edit_save_back() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::BitcoinConfig;
+        app.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+        app.bitcoin_config_view.sidebar_focused = false;
+        app.bitcoin_config_view.editing = false;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Edit"));
+        assert!(output.contains("Save"));
+        assert!(output.contains("Back"));
+    }
+
+    #[test]
+    fn bitcoin_config_with_file_save_message_shows_saved() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::BitcoinConfig;
+        app.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+        app.bitcoin_config_view.save_message = Some("Configuration correctly saved".to_string());
+        let output = render_status_bar(&app);
+        assert!(output.contains("Configuration correctly saved"));
+    }
+
+    #[test]
+    fn bitcoin_status_shows_switch_tab() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::BitcoinStatus;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Switch tab"));
+    }
+
+    #[test]
+    fn default_screen_shows_select() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Home;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Select"));
+    }
+}

@@ -11,9 +11,7 @@ use ratatui::{
 };
 use std::path::Path;
 
-/// Shortens a path to fit within `max_len` characters.
-/// Replaces the home directory with `~`, then collapses the middle
-/// to `…` if still too long, always keeping the filename visible.
+/// Shortens a path to fit within `max_len` characters
 fn shorten_path(path: &Path, max_len: usize) -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let full = path.to_string_lossy().into_owned();
@@ -53,7 +51,7 @@ fn shorten_path(path: &Path, max_len: usize) -> String {
         return candidate;
     }
 
-    // Last resort: truncate the right side
+    // Truncate the right side
     let avail = max_len.saturating_sub(1);
     format!("\u{2026}{}", &s[s.len().saturating_sub(avail)..])
 }
@@ -306,5 +304,228 @@ impl BitcoinConfigView {
 impl Default for BitcoinConfigView {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::AppAction;
+    use crate::bitcoin_config::ConfigEntry;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn entry(key: &str, value: &str, enabled: bool) -> ConfigEntry {
+        ConfigEntry {
+            key: key.to_string(),
+            value: value.to_string(),
+            enabled,
+            schema: None,
+        }
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    // --- shorten path ---
+
+    #[test]
+    fn shorten_path_short_enough_unchanged() {
+        let p = Path::new("/foo/bar.conf");
+        assert_eq!(shorten_path(p, 100), "/foo/bar.conf");
+    }
+
+    #[test]
+    fn shorten_path_collapses_to_parent_filename() {
+        // Path with no HOME prefix, long enough to trigger collapse
+        let p = Path::new("/a/very/long/path/to/parent/file.conf");
+        let result = shorten_path(p, 20);
+        assert!(result.contains("file.conf"));
+        assert!(result.len() <= 25);
+    }
+
+    #[test]
+    fn shorten_path_collapses_to_filename_only() {
+        // Parent/filename still too long → ~/…/filename
+        let long_parent = "/a/b/c/d/longlonglonglongparent/file.conf";
+        let p = Path::new(long_parent);
+        let result = shorten_path(p, 18);
+        assert!(result.contains("file.conf"));
+    }
+
+    #[test]
+    fn shorten_path_last_resort_truncation() {
+        // Even filename alone doesn't fit → truncate with ellipsis
+        let p = Path::new("/a/b/c/d/e/verylongfilename.conf");
+        let result = shorten_path(p, 5);
+        assert!(result.starts_with('\u{2026}') || result.len() <= 5);
+    }
+
+    #[test]
+    fn shorten_path_replaces_home_prefix() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if home.is_empty() {
+            return; // skip on systems without HOME
+        }
+        let p = Path::new(&home).join("myfile.conf");
+        let result = shorten_path(&p, 200);
+        assert!(
+            result.starts_with('~'),
+            "expected ~ prefix, got: {}",
+            result
+        );
+    }
+
+    // --- handle_input: editing mode ---
+
+    #[test]
+    fn editing_char_appends_to_input() {
+        let mut view = BitcoinConfigView::new();
+        view.editing = true;
+        let entries = vec![entry("rpcuser", "old", true)];
+
+        view.handle_input(key(KeyCode::Char('x')), &entries);
+        assert_eq!(view.edit_input, "x");
+    }
+
+    #[test]
+    fn editing_backspace_removes_last_char() {
+        let mut view = BitcoinConfigView::new();
+        view.editing = true;
+        view.edit_input = "ab".to_string();
+        let entries = vec![entry("rpcuser", "old", true)];
+
+        view.handle_input(key(KeyCode::Backspace), &entries);
+        assert_eq!(view.edit_input, "a");
+    }
+
+    #[test]
+    fn editing_enter_returns_commit_action() {
+        let mut view = BitcoinConfigView::new();
+        view.editing = true;
+        view.edit_input = "newval".to_string();
+        view.selected_index = 0;
+        let entries = vec![entry("rpcuser", "old", true)];
+
+        let action = view.handle_input(key(KeyCode::Enter), &entries);
+        assert!(
+            matches!(action, AppAction::CommitEdit(0, ref v) if v == "newval"),
+            "expected CommitEdit(0, newval)"
+        );
+        assert!(!view.editing);
+        assert!(view.edit_input.is_empty());
+    }
+
+    #[test]
+    fn editing_esc_cancels_without_committing() {
+        let mut view = BitcoinConfigView::new();
+        view.editing = true;
+        view.edit_input = "draft".to_string();
+        let entries = vec![entry("rpcuser", "old", true)];
+
+        let action = view.handle_input(key(KeyCode::Esc), &entries);
+        assert!(matches!(action, AppAction::None));
+        assert!(!view.editing);
+        assert!(view.edit_input.is_empty());
+    }
+
+    #[test]
+    fn editing_other_key_is_noop() {
+        let mut view = BitcoinConfigView::new();
+        view.editing = true;
+        let entries = vec![entry("rpcuser", "old", true)];
+
+        let action = view.handle_input(key(KeyCode::F(1)), &entries);
+        assert!(matches!(action, AppAction::None));
+        assert!(view.editing);
+    }
+
+    // --- handle_input: browsing mode ---
+
+    #[test]
+    fn browsing_down_increments_index() {
+        let mut view = BitcoinConfigView::new();
+        let entries = vec![entry("a", "1", true), entry("b", "2", true)];
+
+        view.handle_input(key(KeyCode::Down), &entries);
+        assert_eq!(view.selected_index, 1);
+    }
+
+    #[test]
+    fn browsing_down_clamped_at_last_entry() {
+        let mut view = BitcoinConfigView::new();
+        view.selected_index = 1;
+        let entries = vec![entry("a", "1", true), entry("b", "2", true)];
+
+        view.handle_input(key(KeyCode::Down), &entries);
+        assert_eq!(view.selected_index, 1);
+    }
+
+    #[test]
+    fn browsing_up_decrements_index() {
+        let mut view = BitcoinConfigView::new();
+        view.selected_index = 1;
+        let entries = vec![entry("a", "1", true), entry("b", "2", true)];
+
+        view.handle_input(key(KeyCode::Up), &entries);
+        assert_eq!(view.selected_index, 0);
+    }
+
+    #[test]
+    fn browsing_up_clamped_at_zero() {
+        let mut view = BitcoinConfigView::new();
+        view.selected_index = 0;
+        let entries = vec![entry("a", "1", true)];
+
+        view.handle_input(key(KeyCode::Up), &entries);
+        assert_eq!(view.selected_index, 0);
+    }
+
+    #[test]
+    fn browsing_enter_starts_editing_with_current_value() {
+        let mut view = BitcoinConfigView::new();
+        let entries = vec![entry("rpcuser", "alice", true)];
+
+        view.handle_input(key(KeyCode::Enter), &entries);
+        assert!(view.editing);
+        assert_eq!(view.edit_input, "alice");
+    }
+
+    #[test]
+    fn browsing_enter_noop_when_entries_empty() {
+        let mut view = BitcoinConfigView::new();
+        let entries: Vec<ConfigEntry> = vec![];
+
+        view.handle_input(key(KeyCode::Enter), &entries);
+        assert!(!view.editing);
+    }
+
+    #[test]
+    fn browsing_s_returns_save_action() {
+        let mut view = BitcoinConfigView::new();
+        let entries = vec![entry("rpcuser", "alice", true)];
+
+        let action = view.handle_input(key(KeyCode::Char('s')), &entries);
+        assert!(matches!(action, AppAction::SaveBitcoinConfig));
+    }
+
+    #[test]
+    fn browsing_esc_sets_sidebar_focused() {
+        let mut view = BitcoinConfigView::new();
+        view.sidebar_focused = false;
+        let entries = vec![entry("rpcuser", "alice", true)];
+
+        view.handle_input(key(KeyCode::Esc), &entries);
+        assert!(view.sidebar_focused);
+    }
+
+    #[test]
+    fn any_key_clears_save_message() {
+        let mut view = BitcoinConfigView::new();
+        view.save_message = Some("saved".to_string());
+        let entries = vec![entry("rpcuser", "alice", true)];
+
+        view.handle_input(key(KeyCode::Up), &entries);
+        assert!(view.save_message.is_none());
     }
 }

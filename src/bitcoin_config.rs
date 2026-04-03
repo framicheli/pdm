@@ -1771,4 +1771,69 @@ zmqpubhashtx=tcp://127.0.0.1:28333
         assert_eq!(schema.category, cloned.category);
         assert_eq!(schema.description, cloned.description);
     }
+
+    // Tests for save_config()
+
+    #[test]
+    fn save_config_writes_only_enabled_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.conf");
+
+        let entries = vec![
+            ConfigEntry {
+                key: "rpcuser".to_string(),
+                value: "alice".to_string(),
+                enabled: true,
+                schema: None,
+            },
+            ConfigEntry {
+                key: "rpcport".to_string(),
+                value: "8332".to_string(),
+                enabled: false,
+                schema: None,
+            },
+            ConfigEntry {
+                key: "server".to_string(),
+                value: "1".to_string(),
+                enabled: true,
+                schema: None,
+            },
+        ];
+
+        save_config(&path, &entries).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("rpcuser=alice\n"));
+        assert!(content.contains("server=1\n"));
+        assert!(!content.contains("rpcport"));
+    }
+
+    #[test]
+    fn save_config_empty_entries_creates_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.conf");
+
+        save_config(&path, &[]).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn save_config_roundtrip_with_parse() {
+        let (_dir, path) = create_temp_config("rpcuser=bob\nserver=1\n");
+
+        let entries = parse_config(&path).unwrap();
+        // All parsed entries from a known-good file should round-trip
+        save_config(&path, &entries).unwrap();
+
+        let reparsed = parse_config(&path).unwrap();
+        let enabled: Vec<_> = reparsed.iter().filter(|e| e.enabled).collect();
+        assert!(
+            enabled
+                .iter()
+                .any(|e| e.key == "rpcuser" && e.value == "bob")
+        );
+        assert!(enabled.iter().any(|e| e.key == "server" && e.value == "1"));
+    }
 }
