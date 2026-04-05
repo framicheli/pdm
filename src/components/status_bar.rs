@@ -140,8 +140,7 @@ mod tests {
     fn bitcoin_config_no_file_with_warning_shows_try_again() {
         let mut app = App::new();
         app.current_screen = CurrentScreen::BitcoinConfig;
-        app.bitcoin_config_view.warning_message =
-            Some("Not a valid config.".to_string());
+        app.bitcoin_config_view.warning_message = Some("Not a valid config.".to_string());
         let output = render_status_bar(&app);
         assert!(output.contains("Not a valid config."));
         assert!(output.contains("Try again"));
