@@ -18,6 +18,7 @@ pub const SIDEBAR_ITEMS: &[(&str, CurrentScreen)] = &[
     ("LN Config", CurrentScreen::LNConfig),
     ("LN Status", CurrentScreen::LNStatus),
     ("Shares Market", CurrentScreen::SharesMarket),
+    ("Settings", CurrentScreen::Settings),
 ];
 
 pub const MAX_SIDEBAR_INDEX: usize = SIDEBAR_ITEMS.len() - 1;
@@ -38,6 +39,7 @@ pub enum CurrentScreen {
     LNStatus,
     SharesMarket,
     FileExplorer,
+    Settings,
 }
 
 /// Actions that components (Explorer, Editors) can trigger.
