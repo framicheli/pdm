@@ -84,7 +84,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         }
                     }
                     KeyCode::Down => {
-                        if app.sidebar_index < 3 {
+                        if app.sidebar_index < 8 {
                             app.sidebar_index += 1;
                             AppAction::ToggleMenu
                         } else {
@@ -107,7 +107,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                                     }
                                 }
                                 KeyCode::Down => {
-                                    if app.sidebar_index < 7 {
+                                    if app.sidebar_index < 8 {
                                         app.sidebar_index += 1;
                                         AppAction::ToggleMenu
                                     } else {
@@ -140,7 +140,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                                 }
                             }
                             KeyCode::Down => {
-                                if app.sidebar_index < 7 {
+                                if app.sidebar_index < 8 {
                                     app.sidebar_index += 1;
                                     AppAction::ToggleMenu
                                 } else {
@@ -162,7 +162,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
 
                     KeyCode::Down => {
-                        if app.sidebar_index < 7 {
+                        if app.sidebar_index < 8 {
                             app.sidebar_index += 1;
                             AppAction::ToggleMenu
                         } else {

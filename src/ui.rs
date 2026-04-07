@@ -7,8 +7,8 @@ use crate::components::{
     bitcoin_config_view::BitcoinConfigView, bitcoin_status_view::BitcoinStatusView,
     file_explorer::FileExplorer, home_view::HomeView, ln_config_view::LNConfigView,
     ln_status_view::LNStatusView, p2pool_config_view::P2PoolConfigView,
-    p2pool_status_view::P2PoolStatusView, shares_market_view::SharesMarketView,
-    status_bar::StatusBar,
+    p2pool_status_view::P2PoolStatusView, settings_view::SettingsView,
+    shares_market_view::SharesMarketView, status_bar::StatusBar,
 };
 use ratatui::{
     prelude::*,
@@ -45,6 +45,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         ListItem::new("LN Config"),
         ListItem::new("LN Status"),
         ListItem::new("Shares Market"),
+        ListItem::new("Settings"),
     ];
 
     // Highlight the active one
@@ -87,6 +88,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         }
         CurrentScreen::FileExplorer => {
             FileExplorer::render(f, app, main_area);
+        }
+        CurrentScreen::Settings => {
+            SettingsView::render(f, app, main_area);
         }
         _ => {}
     }

@@ -1,6 +1,5 @@
 ---
 source: tests/ui_snapshots.rs
-assertion_line: 39
 expression: terminal.backend()
 ---
 TestBackend {
@@ -16,7 +15,7 @@ TestBackend {
             "│LN Config              ││                                                     │",
             "│LN Status              ││                                                     │",
             "│Shares Market          ││                                                     │",
-            "│                       ││                                                     │",
+            "│Settings               ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",

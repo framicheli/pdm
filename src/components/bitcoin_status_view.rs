@@ -26,7 +26,7 @@ impl BitcoinStatusView {
             .split(area);
 
         let tabs = Tabs::new(vec!["Chain Info", "System", "Logs", "Peers"])
-            .block(Block::default().borders(Borders::ALL).title(" Info "))
+            .block(Block::default().borders(Borders::ALL).title(" Status "))
             .select(app.bitcoin_status_tab)
             .highlight_style(Style::default().bg(Color::Gray).fg(Color::Black));
 

@@ -20,6 +20,7 @@ pub enum CurrentScreen {
     SharesMarket,
     FileExplorer,
     Exiting,
+    Settings,
 }
 
 /// Actions that components (Explorer, Editors) can trigger.
@@ -82,6 +83,7 @@ impl App {
             5 => self.current_screen = CurrentScreen::LNConfig,
             6 => self.current_screen = CurrentScreen::LNStatus,
             7 => self.current_screen = CurrentScreen::SharesMarket,
+            8 => self.current_screen = CurrentScreen::Settings,
             _ => {}
         }
     }

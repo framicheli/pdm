@@ -1,6 +1,5 @@
 ---
 source: src/main.rs
-assertion_line: 247
 expression: terminal.backend()
 ---
 TestBackend {
@@ -16,7 +15,7 @@ TestBackend {
             "│LN Config              ││                                                     │",
             "│LN Status              ││                                                     │",
             "│Shares Market          ││                                                     │",
-            "│                       ││                                                     │",
+            "│Settings               ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",
             "│                       ││                                                     │",
