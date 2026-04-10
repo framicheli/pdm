@@ -5,6 +5,8 @@
 use crate::bitcoin_config::ConfigEntry as BitcoinEntry;
 use crate::components::bitcoin_config_view::BitcoinConfigView;
 use crate::components::file_explorer::FileExplorer;
+use crate::components::settings_view::SettingsView;
+use crate::settings::Settings;
 use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
 
@@ -60,6 +62,14 @@ pub enum AppAction {
     CommitEdit(usize, String),
     // Saves bitcoin config to disk
     SaveBitcoinConfig,
+    // Commits a settings field edit: (field index, new value string)
+    CommitSettingsEdit(usize, String),
+    // Saves settings to disk
+    SaveSettings,
+    // Begin editing a settings field (pre-fills edit_input from current value)
+    BeginSettingsEdit(usize),
+    // Return focus to sidebar from any content view
+    SidebarFocus,
 }
 
 pub struct App {
@@ -70,9 +80,11 @@ pub struct App {
     pub p2pool_conf_path: Option<PathBuf>,
     pub explorer: FileExplorer,
     pub bitcoin_config_view: BitcoinConfigView,
+    pub settings_view: SettingsView,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
     pub bitcoin_status_tab: usize,
+    pub settings: Settings,
 }
 
 impl App {
@@ -85,9 +97,11 @@ impl App {
             p2pool_conf_path: None,
             explorer: FileExplorer::new(),
             bitcoin_config_view: BitcoinConfigView::new(),
+            settings_view: SettingsView::new(),
             p2pool_config: None,
             bitcoin_data: Vec::new(),
             bitcoin_status_tab: 0,
+            settings: Settings::default(),
         }
     }
 
