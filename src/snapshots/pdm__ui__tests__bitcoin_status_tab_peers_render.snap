@@ -1,13 +1,12 @@
 ---
 source: src/ui.rs
-assertion_line: 170
 expression: terminal.backend()
 ---
 TestBackend {
     buffer: Buffer {
         area: Rect { x: 0, y: 0, width: 80, height: 24 },
         content: [
-            "┌ PDM ──────────────────┐┌ Info ───────────────────────────────────────────────┐",
+            "┌ PDM ──────────────────┐┌ Status ─────────────────────────────────────────────┐",
             "│Home                   ││ Chain Info │ System │ Logs │ Peers                  │",
             "│Bitcoin Config         ││                                                     │",
             "│Bitcoin Status         │└─────────────────────────────────────────────────────┘",

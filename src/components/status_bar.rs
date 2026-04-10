@@ -71,6 +71,20 @@ impl StatusBar {
                     spans.extend(hint("Esc", "Back"));
                 }
             }
+            CurrentScreen::Settings => {
+                if app.settings_view.editing {
+                    spans.extend(hint("Enter", "Confirm"));
+                    spans.extend(hint("Esc", "Cancel"));
+                } else if app.settings_view.sidebar_focused {
+                    spans.extend(hint("↑↓", "Navigate sidebar"));
+                    spans.extend(hint("Enter", "Focus settings"));
+                } else {
+                    spans.extend(hint("↑↓", "Navigate"));
+                    spans.extend(hint("Enter", "Edit"));
+                    spans.extend(hint("s", "Save"));
+                    spans.extend(hint("Esc", "Back"));
+                }
+            }
             CurrentScreen::BitcoinStatus => {
                 spans.extend(hint("↑↓", "Navigate sidebar"));
                 spans.extend(hint("←→", "Switch tab"));
@@ -206,5 +220,36 @@ mod tests {
         app.current_screen = CurrentScreen::Home;
         let output = render_status_bar(&app);
         assert!(output.contains("Select"));
+    }
+
+    #[test]
+    fn settings_sidebar_focused_shows_navigate_sidebar() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = true;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Navigate sidebar"));
+        assert!(output.contains("Focus settings"));
+    }
+
+    #[test]
+    fn settings_content_focused_shows_edit_save_back() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Edit"));
+        assert!(output.contains("Save"));
+        assert!(output.contains("Back"));
+    }
+
+    #[test]
+    fn settings_editing_shows_confirm_cancel() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.editing = true;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Confirm"));
+        assert!(output.contains("Cancel"));
     }
 }
