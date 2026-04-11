@@ -5,4 +5,5 @@
 pub mod app;
 pub mod bitcoin_config;
 pub mod components;
+pub mod p2poolv2_config;
 pub mod ui;
