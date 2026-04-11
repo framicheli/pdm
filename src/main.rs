@@ -9,6 +9,7 @@ use pdm::app::{
 use pdm::bitcoin_config::{
     parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
 };
+use pdm::p2poolv2_config::{apply_edit as apply_p2pool_edit, flatten_config};
 use pdm::components::settings_view::{FIELDS, FieldKind};
 use pdm::settings::{load_settings, save_settings};
 use pdm::ui;
