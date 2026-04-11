@@ -7,6 +7,7 @@ use pdm::app::{App, AppAction, CurrentScreen, MAX_BITCOIN_STATUS_TAB, MAX_SIDEBA
 use pdm::bitcoin_config::{
     parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
 };
+use pdm::p2poolv2_config::{apply_edit as apply_p2pool_edit, flatten_config};
 use pdm::ui;
 
 use anyhow::Result;
@@ -117,6 +118,38 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
                 }
 
+                // P2Pool config
+                CurrentScreen::P2PoolConfig => {
+                    if app.p2pool_conf_path.is_some() {
+                        if app.p2pool_config_view.sidebar_focused {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    app.p2pool_config_view.sidebar_focused = false;
+                                    AppAction::None
+                                }
+                                k => sidebar_nav(k, app),
+                            }
+                        } else {
+                            // Build flat entry list and delegate to the view
+                            let entries = app
+                                .p2pool_config
+                                .as_ref()
+                                .map(|cfg| flatten_config(cfg))
+                                .unwrap_or_default();
+                            app.p2pool_config_view.handle_input(key, &entries)
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Enter => {
+                                app.p2pool_config_view.warning_message = None;
+                                AppAction::OpenExplorer(CurrentScreen::P2PoolConfig)
+                            }
+                            KeyCode::Esc => AppAction::CloseModal,
+                            k => sidebar_nav(k, app),
+                        }
+                    }
+                }
+
                 _ => match key.code {
                     KeyCode::Enter => {
                         if matches!(app.current_screen, CurrentScreen::P2PoolConfig) {
@@ -157,9 +190,35 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
             if let Some(trigger) = &app.explorer_trigger {
                 match trigger {
                     CurrentScreen::P2PoolConfig => {
-                        app.p2pool_conf_path = Some(path.clone());
-                        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-                            app.p2pool_config = Some(cfg);
+                        match P2PoolConfig::load(path.to_str().unwrap()) {
+                            Ok(cfg) => {
+                                // Sanity check — a valid p2pool config must have
+                                // a stratum section with at least a hostname
+                                if cfg.stratum.hostname.is_empty() {
+                                    app.p2pool_config_view.warning_message = Some(
+                    "File does not appear to be a P2Pool config. Select another file."
+                        .to_string(),
+                );
+                                    app.p2pool_conf_path = None;
+                                    app.p2pool_config = None;
+                                } else {
+                                    app.p2pool_conf_path = Some(path.clone());
+                                    app.p2pool_config = Some(cfg);
+                                    app.p2pool_config_view.sidebar_focused = false;
+                                    app.p2pool_config_view.warning_message = None;
+                                    app.p2pool_config_view.selected_index = 0;
+                                }
+                            }
+                            Err(e) => {
+                                // Config::load failed — wrong file format, missing required
+                                // fields, or a TOML parse error
+                                app.p2pool_config_view.warning_message = Some(format!(
+                                    "Failed to load P2Pool config: {}. Select another file.",
+                                    e
+                                ));
+                                app.p2pool_conf_path = None;
+                                app.p2pool_config = None;
+                            }
                         }
                         app.current_screen = CurrentScreen::P2PoolConfig;
                     }
@@ -220,11 +279,80 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                 app.bitcoin_config_view.dirty = false;
             }
         }
+        AppAction::CommitP2PoolEdit(index, value) => {
+            if let Some(cfg) = app.p2pool_config.as_mut() {
+                match apply_p2pool_edit(cfg, index, &value) {
+                    Ok(()) => {
+                        app.p2pool_config_view.warning_message = None;
+                    }
+                    Err(e) => {
+                        app.p2pool_config_view.warning_message = Some(e);
+                    }
+                }
+            }
+        }
+
+        AppAction::SaveP2PoolConfig => {
+            if let (Some(path), Some(cfg)) =
+                (app.p2pool_conf_path.clone(), app.p2pool_config.as_ref())
+            {
+                match save_p2pool_config(&path, cfg) {
+                    Ok(()) => {
+                        app.p2pool_config_view.save_message =
+                            Some("Configuration correctly saved".to_string());
+                    }
+                    Err(e) => {
+                        app.p2pool_config_view.warning_message =
+                            Some(format!("Save failed: {}", e));
+                    }
+                }
+            }
+        }
 
         AppAction::None => {}
     }
 
     Ok(false)
+}
+
+/// Serialize the live `P2PoolConfig` back to TOML and write it to disk.
+/// Saves P2Pool config by patching the original TOML file in-place.
+/// Uses toml_edit so comments and formatting are preserved.
+fn save_p2pool_config(path: &std::path::Path, cfg: &P2PoolConfig) -> Result<()> {
+    use pdm::p2poolv2_config::flatten_config;
+    use toml_edit::DocumentMut;
+
+    // Read the original file so we preserve comments/ordering
+    let original = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read P2Pool config: {}", e))?;
+
+    let mut doc = original
+        .parse::<DocumentMut>()
+        .map_err(|e| anyhow::anyhow!("Failed to parse P2Pool config TOML: {}", e))?;
+
+    // Walk every flattened entry and patch the matching TOML key
+    for entry in flatten_config(cfg) {
+        let section = entry.section.to_string();
+        let key = entry.key.as_str();
+
+        // Skip optional fields that are unset — leave them absent in the file
+        if !entry.enabled {
+            continue;
+        }
+
+        if let Some(table) = doc.get_mut(&section).and_then(|v| v.as_table_mut()) {
+            // Only update keys that already exist in the file to avoid
+            // injecting fields the user intentionally omitted
+            if table.contains_key(key) {
+                table[key] = toml_edit::value(entry.value.clone());
+            }
+        }
+    }
+
+    std::fs::write(path, doc.to_string())
+        .map_err(|e| anyhow::anyhow!("Failed to write P2Pool config: {}", e))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -458,6 +586,27 @@ mod tests {
         assert!(app.bitcoin_config_view.warning_message.is_some());
         assert!(app.bitcoin_conf_path.is_none());
         assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
+    }
+
+    #[test]
+    fn commit_p2pool_edit_bad_value_sets_warning() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        // Needs a real sample config — adjust path to your sample
+        if let Ok(cfg) = P2PoolConfig::load("../config.sample.toml") {
+            let mut app = App::new();
+            app.p2pool_config = Some(cfg);
+            // Find port index
+            let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+            let port_idx = entries.iter().position(|e| e.key == "port").unwrap();
+            handle_action(
+                AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
+                &mut app,
+            )
+            .unwrap();
+            assert!(app.p2pool_config_view.warning_message.is_some());
+        }
     }
 
     #[test]
