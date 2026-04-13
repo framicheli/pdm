@@ -2,12 +2,32 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::bitcoin_config::ConfigEntry as BitcoinEntry;
+use crate::components::bitcoin_config_view::BitcoinConfigView;
 use crate::components::file_explorer::FileExplorer;
-use crate::config::ConfigEntry as BitcoinEntry;
 use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+/// Sidebar items labels
+pub const SIDEBAR_ITEMS: &[(&str, CurrentScreen)] = &[
+    ("Home", CurrentScreen::Home),
+    ("Bitcoin Config", CurrentScreen::BitcoinConfig),
+    ("Bitcoin Status", CurrentScreen::BitcoinStatus),
+    ("P2Pool Config", CurrentScreen::P2PoolConfig),
+    ("P2Pool Status", CurrentScreen::P2PoolStatus),
+    ("LN Config", CurrentScreen::LNConfig),
+    ("LN Status", CurrentScreen::LNStatus),
+    ("Shares Market", CurrentScreen::SharesMarket),
+];
+
+pub const MAX_SIDEBAR_INDEX: usize = SIDEBAR_ITEMS.len() - 1;
+
+/// Tab labels for the Bitcoin Status view
+pub const BITCOIN_STATUS_TABS: &[&str] = &["Chain Info", "System", "Logs", "Peers"];
+
+pub const MAX_BITCOIN_STATUS_TAB: usize = BITCOIN_STATUS_TABS.len() - 1;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CurrentScreen {
     Home,
     BitcoinConfig,
@@ -18,7 +38,6 @@ pub enum CurrentScreen {
     LNStatus,
     SharesMarket,
     FileExplorer,
-    Exiting,
 }
 
 /// Actions that components (Explorer, Editors) can trigger.
@@ -35,6 +54,10 @@ pub enum AppAction {
     FileSelected(PathBuf),
     // Closes the explorer without selection
     CloseModal,
+    // Commits an edited value: (entry index, new value)
+    CommitEdit(usize, String),
+    // Saves bitcoin config to disk
+    SaveBitcoinConfig,
 }
 
 pub struct App {
@@ -44,6 +67,7 @@ pub struct App {
     pub bitcoin_conf_path: Option<PathBuf>,
     pub p2pool_conf_path: Option<PathBuf>,
     pub explorer: FileExplorer,
+    pub bitcoin_config_view: BitcoinConfigView,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
     pub bitcoin_status_tab: usize,
@@ -58,24 +82,23 @@ impl App {
             bitcoin_conf_path: None,
             p2pool_conf_path: None,
             explorer: FileExplorer::new(),
+            bitcoin_config_view: BitcoinConfigView::new(),
             p2pool_config: None,
             bitcoin_data: Vec::new(),
             bitcoin_status_tab: 0,
         }
     }
 
+    // Logic to switch between sidebar items
     pub fn toggle_menu(&mut self) {
-        // Logic to switch between sidebar items
-        match self.sidebar_index {
-            0 => self.current_screen = CurrentScreen::Home,
-            1 => self.current_screen = CurrentScreen::BitcoinConfig,
-            2 => self.current_screen = CurrentScreen::BitcoinStatus,
-            3 => self.current_screen = CurrentScreen::P2PoolConfig,
-            4 => self.current_screen = CurrentScreen::P2PoolStatus,
-            5 => self.current_screen = CurrentScreen::LNConfig,
-            6 => self.current_screen = CurrentScreen::LNStatus,
-            7 => self.current_screen = CurrentScreen::SharesMarket,
-            _ => {}
+        if self.current_screen == CurrentScreen::BitcoinConfig {
+            self.bitcoin_config_view.warning_message = None;
+            self.bitcoin_config_view.save_message = None;
+            self.bitcoin_config_view.editing = false;
+            self.bitcoin_config_view.edit_input.clear();
+        }
+        if let Some(&(_, screen)) = SIDEBAR_ITEMS.get(self.sidebar_index) {
+            self.current_screen = screen;
         }
     }
 }

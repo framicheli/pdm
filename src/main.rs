@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use p2poolv2_config::Config as P2PoolConfig;
-use pdm::app::AppAction;
-use pdm::app::{App, CurrentScreen};
-use pdm::config::parse_config as parse_bitcoin_config;
+use pdm::app::{App, AppAction, CurrentScreen, MAX_BITCOIN_STATUS_TAB, MAX_SIDEBAR_INDEX};
+use pdm::bitcoin_config::{
+    parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
+};
 use pdm::ui;
 
 use anyhow::Result;
@@ -41,6 +42,20 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn sidebar_nav(key: KeyCode, app: &mut App) -> AppAction {
+    match key {
+        KeyCode::Up if app.sidebar_index > 0 => {
+            app.sidebar_index -= 1;
+            AppAction::ToggleMenu
+        }
+        KeyCode::Down if app.sidebar_index < MAX_SIDEBAR_INDEX => {
+            app.sidebar_index += 1;
+            AppAction::ToggleMenu
+        }
+        _ => AppAction::None,
+    }
+}
+
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> {
     loop {
         terminal.draw(|f| ui::ui(f, app))?;
@@ -68,61 +83,49 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                         AppAction::None
                     }
                     KeyCode::Right => {
-                        if app.bitcoin_status_tab < 3 {
+                        if app.bitcoin_status_tab < MAX_BITCOIN_STATUS_TAB {
                             app.bitcoin_status_tab += 1;
                         }
                         AppAction::None
                     }
-                    KeyCode::Up => {
-                        if app.sidebar_index > 0 {
-                            app.sidebar_index -= 1;
-                            AppAction::ToggleMenu
-                        } else {
-                            AppAction::None
-                        }
-                    }
-                    KeyCode::Down => {
-                        if app.sidebar_index < 3 {
-                            app.sidebar_index += 1;
-                            AppAction::ToggleMenu
-                        } else {
-                            AppAction::None
-                        }
-                    }
-                    _ => AppAction::None,
+                    k => sidebar_nav(k, app),
                 },
+
+                CurrentScreen::BitcoinConfig => {
+                    if app.bitcoin_conf_path.is_some() {
+                        if app.bitcoin_config_view.sidebar_focused {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    app.bitcoin_config_view.sidebar_focused = false;
+                                    AppAction::None
+                                }
+                                k => sidebar_nav(k, app),
+                            }
+                        } else {
+                            let entries = &app.bitcoin_data;
+                            app.bitcoin_config_view.handle_input(key, entries)
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Enter => {
+                                app.bitcoin_config_view.warning_message = None;
+                                AppAction::OpenExplorer(CurrentScreen::BitcoinConfig)
+                            }
+                            KeyCode::Esc => AppAction::CloseModal,
+                            k => sidebar_nav(k, app),
+                        }
+                    }
+                }
 
                 _ => match key.code {
                     KeyCode::Enter => {
-                        if matches!(
-                            app.current_screen,
-                            CurrentScreen::BitcoinConfig | CurrentScreen::P2PoolConfig
-                        ) {
-                            AppAction::OpenExplorer(app.current_screen.clone())
+                        if matches!(app.current_screen, CurrentScreen::P2PoolConfig) {
+                            AppAction::OpenExplorer(app.current_screen)
                         } else {
                             AppAction::None
                         }
                     }
-
-                    KeyCode::Down => {
-                        if app.sidebar_index < 7 {
-                            app.sidebar_index += 1;
-                            AppAction::ToggleMenu
-                        } else {
-                            AppAction::None
-                        }
-                    }
-
-                    KeyCode::Up => {
-                        if app.sidebar_index > 0 {
-                            app.sidebar_index -= 1;
-                            AppAction::ToggleMenu
-                        } else {
-                            AppAction::None
-                        }
-                    }
-
-                    _ => AppAction::None,
+                    k => sidebar_nav(k, app),
                 },
             };
 
@@ -146,12 +149,8 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
         }
 
         AppAction::CloseModal => {
-            if let Some(trigger) = &app.explorer_trigger {
-                app.current_screen = trigger.clone();
-            } else {
-                app.toggle_menu();
-            }
             app.explorer_trigger = None;
+            app.toggle_menu();
         }
 
         AppAction::FileSelected(path) => {
@@ -164,13 +163,37 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                         }
                         app.current_screen = CurrentScreen::P2PoolConfig;
                     }
-                    CurrentScreen::BitcoinConfig => {
-                        app.bitcoin_conf_path = Some(path.clone());
-                        if let Ok(entries) = parse_bitcoin_config(&path) {
-                            app.bitcoin_data = entries;
+                    CurrentScreen::BitcoinConfig => match parse_bitcoin_config(&path) {
+                        Ok(entries) => {
+                            const MIN_KNOWN_KEYS: usize = 1;
+                            let known_key_count = entries
+                                .iter()
+                                .filter(|e| e.enabled && e.schema.is_some())
+                                .count();
+
+                            if known_key_count >= MIN_KNOWN_KEYS {
+                                app.bitcoin_conf_path = Some(path.clone());
+                                app.bitcoin_data = entries;
+                                app.bitcoin_config_view.selected_index = 0;
+                                app.bitcoin_config_view.dirty = false;
+                                app.current_screen = CurrentScreen::BitcoinConfig;
+                                app.bitcoin_config_view.sidebar_focused = false;
+                                app.bitcoin_config_view.warning_message = None;
+                            } else {
+                                app.bitcoin_config_view.warning_message = Some(
+                                    "File does not appear to be a Bitcoin config. Select another file."
+                                        .to_string(),
+                                );
+                                app.current_screen = CurrentScreen::BitcoinConfig;
+                            }
                         }
-                        app.current_screen = CurrentScreen::BitcoinConfig;
-                    }
+                        Err(e) => {
+                            app.bitcoin_config_view.warning_message = Some(format!(
+                                "Failed to read config: {e}. Check permissions and try again."
+                            ));
+                            app.current_screen = CurrentScreen::BitcoinConfig;
+                        }
+                    },
                     _ => {}
                 }
             }
@@ -179,6 +202,23 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
 
         AppAction::Navigate(screen) => {
             app.current_screen = screen;
+        }
+
+        AppAction::CommitEdit(index, value) => {
+            if index < app.bitcoin_data.len() {
+                app.bitcoin_data[index].value = value;
+                app.bitcoin_data[index].enabled = true;
+                app.bitcoin_config_view.dirty = true;
+            }
+        }
+
+        AppAction::SaveBitcoinConfig => {
+            if let Some(path) = app.bitcoin_conf_path.clone() {
+                save_bitcoin_config(&path, &app.bitcoin_data)?;
+                app.bitcoin_config_view.save_message =
+                    Some("Configuration correctly saved".to_string());
+                app.bitcoin_config_view.dirty = false;
+            }
         }
 
         AppAction::None => {}
@@ -242,7 +282,6 @@ mod tests {
     #[test]
     fn test_file_explorer_wrap_and_select_sets_config() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-        use std::fs::File;
         use tempfile::tempdir;
 
         // Create isolated temporary directory
@@ -251,7 +290,7 @@ mod tests {
 
         // Create a fake bitcoin.conf file
         let file_path = base.join("bitcoin.conf");
-        File::create(&file_path).unwrap();
+        std::fs::write(&file_path, "rpcuser=test\n").unwrap();
 
         let backend = TestBackend::new(80, 25);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -297,9 +336,10 @@ mod tests {
     }
 
     #[test]
-    fn app_action_close_modal_returns_to_trigger_screen() {
+    fn app_action_close_modal_returns_to_sidebar() {
         let mut app = App::new();
 
+        app.sidebar_index = 1; // Bitcoin Config
         app.explorer_trigger = Some(CurrentScreen::BitcoinConfig);
         app.current_screen = CurrentScreen::FileExplorer;
 
@@ -317,5 +357,265 @@ mod tests {
         let exited = handle_action(AppAction::Quit, &mut app).unwrap();
 
         assert!(exited);
+    }
+
+    #[test]
+    fn commit_edit_updates_entry_value_and_enables_it() {
+        use pdm::bitcoin_config::ConfigEntry;
+
+        let mut app = App::new();
+        app.bitcoin_data = vec![
+            ConfigEntry {
+                key: "rpcuser".to_string(),
+                value: "old".to_string(),
+                enabled: false,
+                schema: None,
+                section: None,
+            },
+            ConfigEntry {
+                key: "server".to_string(),
+                value: "0".to_string(),
+                enabled: true,
+                schema: None,
+                section: None,
+            },
+        ];
+
+        handle_action(AppAction::CommitEdit(0, "alice".to_string()), &mut app).unwrap();
+
+        assert_eq!(app.bitcoin_data[0].value, "alice");
+        assert!(app.bitcoin_data[0].enabled);
+        // Other entries unchanged
+        assert_eq!(app.bitcoin_data[1].value, "0");
+    }
+
+    #[test]
+    fn commit_edit_out_of_bounds_is_noop() {
+        let mut app = App::new();
+        // bitcoin_data is empty
+        let result = handle_action(AppAction::CommitEdit(5, "val".to_string()), &mut app);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn save_bitcoin_config_writes_file_and_sets_message() {
+        use pdm::bitcoin_config::ConfigEntry;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+
+        let mut app = App::new();
+        app.bitcoin_conf_path = Some(path.clone());
+        app.bitcoin_data = vec![ConfigEntry {
+            key: "rpcuser".to_string(),
+            value: "testuser".to_string(),
+            enabled: true,
+            schema: None,
+            section: None,
+        }];
+
+        handle_action(AppAction::SaveBitcoinConfig, &mut app).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("rpcuser=testuser"));
+        assert_eq!(
+            app.bitcoin_config_view.save_message.as_deref(),
+            Some("Configuration correctly saved")
+        );
+    }
+
+    #[test]
+    fn save_bitcoin_config_noop_when_no_path() {
+        let mut app = App::new();
+        // No bitcoin_conf_path set
+        let result = handle_action(AppAction::SaveBitcoinConfig, &mut app);
+        assert!(result.is_ok());
+        assert!(app.bitcoin_config_view.save_message.is_none());
+    }
+
+    #[test]
+    fn navigate_action_changes_screen() {
+        let mut app = App::new();
+        handle_action(AppAction::Navigate(CurrentScreen::BitcoinStatus), &mut app).unwrap();
+        assert_eq!(app.current_screen, CurrentScreen::BitcoinStatus);
+    }
+
+    #[test]
+    fn file_selected_invalid_bitcoin_config_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("not_a_config.conf");
+        // Write a file with no recognized bitcoin config keys
+        std::fs::write(&path, "unknownkey=somevalue\n").unwrap();
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::BitcoinConfig);
+
+        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+
+        assert!(app.bitcoin_config_view.warning_message.is_some());
+        assert!(app.bitcoin_conf_path.is_none());
+        assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
+    }
+
+    #[test]
+    fn bitcoin_config_sidebar_focus_toggle_via_enter() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        std::fs::write(&path, "rpcuser=test\n").unwrap();
+
+        let mut app = App::new();
+        app.sidebar_index = 1;
+        app.toggle_menu();
+        handle_action(
+            AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+            &mut app,
+        )
+        .unwrap();
+
+        app.explorer.current_dir = dir.path().to_path_buf();
+        app.explorer.load_directory();
+
+        // Select the file
+        app.explorer
+            .handle_input(KeyEvent::new(KeyCode::Down, KeyModifiers::empty()));
+        let action = app
+            .explorer
+            .handle_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        handle_action(action, &mut app).unwrap();
+
+        // After file selection, sidebar_focused should be false
+        assert!(!app.bitcoin_config_view.sidebar_focused);
+
+        // Pressing Esc via handle_input should set sidebar_focused back
+        let entries_clone = app.bitcoin_data.clone();
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::empty());
+        app.bitcoin_config_view.handle_input(esc, &entries_clone);
+        assert!(app.bitcoin_config_view.sidebar_focused);
+    }
+
+    // --- toggle_menu state cleanup ---
+
+    #[test]
+    fn toggle_menu_clears_bitcoin_config_messages_on_navigate_away() {
+        let mut app = App::new();
+        app.sidebar_index = 1;
+        app.toggle_menu(); // → BitcoinConfig
+        app.bitcoin_config_view.warning_message = Some("some warning".to_string());
+        app.bitcoin_config_view.save_message = Some("saved".to_string());
+
+        app.sidebar_index = 0;
+        app.toggle_menu(); // → Home
+
+        assert!(app.bitcoin_config_view.warning_message.is_none());
+        assert!(app.bitcoin_config_view.save_message.is_none());
+    }
+
+    #[test]
+    fn toggle_menu_cancels_in_progress_edit_on_navigate_away() {
+        let mut app = App::new();
+        app.sidebar_index = 1;
+        app.toggle_menu();
+        app.bitcoin_config_view.editing = true;
+        app.bitcoin_config_view.edit_input = "draft value".to_string();
+
+        app.sidebar_index = 0;
+        app.toggle_menu(); // navigate away
+
+        assert!(!app.bitcoin_config_view.editing);
+        assert!(app.bitcoin_config_view.edit_input.is_empty());
+    }
+
+    #[test]
+    fn toggle_menu_does_not_clear_messages_when_staying_on_other_screen() {
+        let mut app = App::new();
+        // Start on Home (index 0), set some other state, navigate within Home
+        app.sidebar_index = 2;
+        app.toggle_menu(); // → BitcoinStatus
+        app.bitcoin_config_view.warning_message = Some("keep me".to_string());
+
+        app.sidebar_index = 3;
+        app.toggle_menu(); // → P2PoolConfig (never on BitcoinConfig, no clear should happen)
+
+        // Messages only cleared when leaving BitcoinConfig, not from other screens
+        assert_eq!(
+            app.bitcoin_config_view.warning_message.as_deref(),
+            Some("keep me")
+        );
+    }
+
+    // --- dirty flag ---
+
+    #[test]
+    fn commit_edit_sets_dirty_flag() {
+        use pdm::bitcoin_config::ConfigEntry;
+
+        let mut app = App::new();
+        app.bitcoin_data = vec![ConfigEntry {
+            key: "rpcuser".to_string(),
+            value: "old".to_string(),
+            enabled: true,
+            schema: None,
+            section: None,
+        }];
+
+        handle_action(AppAction::CommitEdit(0, "new".to_string()), &mut app).unwrap();
+
+        assert!(app.bitcoin_config_view.dirty);
+        assert_eq!(app.bitcoin_data[0].value, "new");
+    }
+
+    #[test]
+    fn save_bitcoin_config_clears_dirty_flag() {
+        use pdm::bitcoin_config::ConfigEntry;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+
+        let mut app = App::new();
+        app.bitcoin_conf_path = Some(path.clone());
+        app.bitcoin_config_view.dirty = true;
+        app.bitcoin_data = vec![ConfigEntry {
+            key: "rpcuser".to_string(),
+            value: "testuser".to_string(),
+            enabled: true,
+            schema: None,
+            section: None,
+        }];
+
+        handle_action(AppAction::SaveBitcoinConfig, &mut app).unwrap();
+
+        assert!(!app.bitcoin_config_view.dirty);
+    }
+
+    #[test]
+    fn file_selected_resets_dirty_flag() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        std::fs::write(&path, "rpcuser=test\n").unwrap();
+
+        let mut app = App::new();
+        app.bitcoin_config_view.dirty = true;
+        app.explorer_trigger = Some(CurrentScreen::BitcoinConfig);
+
+        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+
+        assert!(!app.bitcoin_config_view.dirty);
+    }
+
+    #[test]
+    fn commit_edit_out_of_bounds_does_not_set_dirty() {
+        let mut app = App::new();
+        // bitcoin_data is empty; CommitEdit with bad index must not set dirty
+        handle_action(AppAction::CommitEdit(99, "val".to_string()), &mut app).unwrap();
+        assert!(!app.bitcoin_config_view.dirty);
     }
 }

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use crate::app;
 use crate::app::{App, CurrentScreen};
 use crate::components::{
     bitcoin_config_view::BitcoinConfigView, bitcoin_status_view::BitcoinStatusView,
@@ -36,23 +37,31 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         .split(main_row);
 
     //  Sidebar
-    let items = vec![
-        ListItem::new("Home"),
-        ListItem::new("Bitcoin Config"),
-        ListItem::new("Bitcoin Status"),
-        ListItem::new("P2Pool Config"),
-        ListItem::new("P2Pool Status"),
-        ListItem::new("LN Config"),
-        ListItem::new("LN Status"),
-        ListItem::new("Shares Market"),
-    ];
+    let items: Vec<ListItem> = app::SIDEBAR_ITEMS
+        .iter()
+        .map(|&(label, _)| ListItem::new(label))
+        .collect();
 
     // Highlight the active one
     let mut state = ListState::default();
     state.select(Some(app.sidebar_index));
 
+    // Dim the sidebar when the user has moved focus into a content panel
+    let sidebar_focused = !matches!(app.current_screen, CurrentScreen::BitcoinConfig)
+        || app.bitcoin_config_view.sidebar_focused;
+    let sidebar_border_style = if sidebar_focused {
+        Style::default()
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
     let sidebar = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" PDM "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" PDM ")
+                .border_style(sidebar_border_style),
+        )
         .highlight_style(Style::default().bg(Color::Gray).fg(Color::Black));
 
     f.render_stateful_widget(sidebar, chunks[0], &mut state);
@@ -88,7 +97,6 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         CurrentScreen::FileExplorer => {
             FileExplorer::render(f, app, main_area);
         }
-        _ => {}
     }
 
     StatusBar::render(f, app, status_bar_area);

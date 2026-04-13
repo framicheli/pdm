@@ -1,5 +1,6 @@
 ---
 source: src/main.rs
+assertion_line: 247
 expression: terminal.backend()
 ---
 TestBackend {
@@ -30,7 +31,7 @@ TestBackend {
             "│                       ││                                                     │",
             "│                       ││                                                     │",
             "└───────────────────────┘└─────────────────────────────────────────────────────┘",
-            " ↑↓  Navigate sidebar   Enter  Select   q  Quit                                 ",
+            " ↑↓  Navigate sidebar   Enter  Open file   Esc  Back                            ",
         ],
         styles: [
             x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
@@ -40,9 +41,9 @@ TestBackend {
             x: 4, y: 24, fg: DarkGray, bg: Black, underline: Reset, modifier: NONE,
             x: 23, y: 24, fg: White, bg: DarkGray, underline: Reset, modifier: NONE,
             x: 30, y: 24, fg: DarkGray, bg: Black, underline: Reset, modifier: NONE,
-            x: 39, y: 24, fg: White, bg: DarkGray, underline: Reset, modifier: NONE,
-            x: 42, y: 24, fg: DarkGray, bg: Black, underline: Reset, modifier: NONE,
-            x: 49, y: 24, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
+            x: 42, y: 24, fg: White, bg: DarkGray, underline: Reset, modifier: NONE,
+            x: 47, y: 24, fg: DarkGray, bg: Black, underline: Reset, modifier: NONE,
+            x: 54, y: 24, fg: Reset, bg: Black, underline: Reset, modifier: NONE,
         ]
     },
     scrollback: Buffer {

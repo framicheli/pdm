@@ -138,6 +138,13 @@ impl FileExplorer {
                 }
                 AppAction::None
             }
+            KeyCode::Backspace => {
+                if let Some(parent) = self.current_dir.parent() {
+                    self.current_dir = parent.to_path_buf();
+                    self.load_directory();
+                }
+                AppAction::None
+            }
             KeyCode::Esc => AppAction::CloseModal,
             _ => AppAction::None,
         }
@@ -307,5 +314,40 @@ mod tests {
 
         explorer.previous();
         assert_eq!(explorer.selected_index, 1);
+    }
+
+    #[test]
+    fn backspace_navigates_to_parent_directory() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let base = setup_temp_fs();
+        let child = base.join("folder");
+
+        let mut explorer = FileExplorer {
+            current_dir: child.clone(),
+            files: vec![],
+            selected_index: 0,
+        };
+        explorer.load_directory();
+
+        let action =
+            explorer.handle_input(KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty()));
+        assert!(matches!(action, crate::app::AppAction::None));
+        assert_eq!(explorer.current_dir, base);
+    }
+
+    #[test]
+    fn esc_returns_close_modal() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let dir = setup_temp_fs();
+        let mut explorer = FileExplorer {
+            current_dir: dir,
+            files: vec![],
+            selected_index: 0,
+        };
+
+        let action = explorer.handle_input(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
+        assert!(matches!(action, crate::app::AppAction::CloseModal));
     }
 }
