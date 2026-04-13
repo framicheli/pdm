@@ -47,8 +47,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     state.select(Some(app.sidebar_index));
 
     // Dim the sidebar when the user has moved focus into a content panel
-    let sidebar_focused = !matches!(app.current_screen, CurrentScreen::BitcoinConfig)
-        || app.bitcoin_config_view.sidebar_focused;
+    let sidebar_focused = match app.current_screen {
+        CurrentScreen::BitcoinConfig => app.bitcoin_config_view.sidebar_focused,
+        CurrentScreen::Settings => app.settings_view.sidebar_focused,
+        _ => true,
+    };
     let sidebar_border_style = if sidebar_focused {
         Style::default()
     } else {

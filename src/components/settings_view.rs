@@ -105,11 +105,26 @@ impl SettingsView {
 
         // Collect current field values from app state
         let values: [Option<String>; 5] = [
-            app.settings.bitcoin_conf_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-            app.settings.p2pool_conf_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-            app.settings.ln_conf_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-            app.settings.shares_market_conf_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-            app.settings.settings_dir_override.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            app.settings
+                .bitcoin_conf_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
+            app.settings
+                .p2pool_conf_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
+            app.settings
+                .ln_conf_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
+            app.settings
+                .shares_market_conf_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
+            app.settings
+                .settings_dir_override
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned()),
         ];
 
         let items: Vec<ListItem> = FIELD_LABELS
@@ -119,7 +134,9 @@ impl SettingsView {
                 let (display, style) = match val {
                     Some(v) => (
                         v.clone(),
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     None => (
                         "(not set)".to_string(),
@@ -136,14 +153,29 @@ impl SettingsView {
         let mut list_state = ListState::default();
         list_state.select(Some(app.settings_view.selected_index));
 
+        // Border style: dim both panels when the user is navigating the main sidebar
+        let panel_style = if app.settings_view.sidebar_focused {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(" Settings "))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Settings ")
+                    .border_style(panel_style),
+            )
             .highlight_style(Style::default().bg(Color::DarkGray));
 
         f.render_stateful_widget(list, panels[0], &mut list_state);
 
         // Right panel: detail + edit input
-        let right_block = Block::default().borders(Borders::ALL).title(" Detail ");
+        let right_block = Block::default()
+            .borders(Borders::ALL)
+            .title(" Detail ")
+            .border_style(panel_style);
         let inner = right_block.inner(panels[1]);
         f.render_widget(right_block, panels[1]);
 
@@ -185,7 +217,9 @@ impl SettingsView {
             let (display, style) = match &values[selected] {
                 Some(v) => (
                     v.clone(),
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 None => (
                     "(not set)".to_string(),

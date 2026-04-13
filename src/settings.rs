@@ -141,7 +141,10 @@ mod tests {
         let loaded: Settings =
             toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap_or_default();
 
-        assert_eq!(loaded.bitcoin_conf_path, Some(PathBuf::from("/tmp/bitcoin.conf")));
+        assert_eq!(
+            loaded.bitcoin_conf_path,
+            Some(PathBuf::from("/tmp/bitcoin.conf"))
+        );
         assert_eq!(loaded.ln_conf_path, Some(PathBuf::from("/tmp/ln.conf")));
         assert!(loaded.p2pool_conf_path.is_none());
     }
@@ -175,7 +178,10 @@ mod tests {
         let toml_str = toml::to_string_pretty(&settings).unwrap();
         assert!(toml_str.contains("settings_dir_override"));
         let back: Settings = toml::from_str(&toml_str).unwrap();
-        assert_eq!(back.settings_dir_override, Some(PathBuf::from("/custom/dir")));
+        assert_eq!(
+            back.settings_dir_override,
+            Some(PathBuf::from("/custom/dir"))
+        );
     }
 
     #[test]
