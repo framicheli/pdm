@@ -165,12 +165,11 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                     }
                     CurrentScreen::BitcoinConfig => match parse_bitcoin_config(&path) {
                         Ok(entries) => {
-                            // Accept the file if it contains at least this many recognised
-                            // (schema-backed) enabled keys. 1 = permissive; raise to require
-                            // a more complete config.
                             const MIN_KNOWN_KEYS: usize = 1;
-                            let known_key_count =
-                                entries.iter().filter(|e| e.enabled && e.schema.is_some()).count();
+                            let known_key_count = entries
+                                .iter()
+                                .filter(|e| e.enabled && e.schema.is_some())
+                                .count();
 
                             if known_key_count >= MIN_KNOWN_KEYS {
                                 app.bitcoin_conf_path = Some(path.clone());
