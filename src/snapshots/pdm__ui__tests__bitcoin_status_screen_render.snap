@@ -6,7 +6,7 @@ TestBackend {
     buffer: Buffer {
         area: Rect { x: 0, y: 0, width: 80, height: 24 },
         content: [
-            "┌ PDM ──────────────────┐┌ Status ─────────────────────────────────────────────┐",
+            "┌ PDM ──────────────────┐┌ Info ───────────────────────────────────────────────┐",
             "│Home                   ││ Chain Info │ System │ Logs │ Peers                  │",
             "│Bitcoin Config         ││                                                     │",
             "│Bitcoin Status         │└─────────────────────────────────────────────────────┘",
