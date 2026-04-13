@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::app::App;
+use crate::app::{App, BITCOIN_STATUS_TABS};
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Tabs, Wrap},
@@ -25,7 +25,7 @@ impl BitcoinStatusView {
             ])
             .split(area);
 
-        let tabs = Tabs::new(vec!["Chain Info", "System", "Logs", "Peers"])
+        let tabs = Tabs::new(BITCOIN_STATUS_TABS.to_vec())
             .block(Block::default().borders(Borders::ALL).title(" Info "))
             .select(app.bitcoin_status_tab)
             .highlight_style(Style::default().bg(Color::Gray).fg(Color::Black));

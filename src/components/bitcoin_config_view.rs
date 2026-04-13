@@ -11,18 +11,18 @@ use ratatui::{
 };
 use std::path::Path;
 
-/// Shortens a path to fit within `max_len` characters
+/// Shortens a path to fit within `max_len` Unicode scalar values (terminal columns)
 fn shorten_path(path: &Path, max_len: usize) -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let full = path.to_string_lossy().into_owned();
 
     let s = if !home.is_empty() && full.starts_with(&home) {
-        format!("~{}", &full[home.len()..])
+        format!("~{}", full.strip_prefix(&home).unwrap_or(&full))
     } else {
         full
     };
 
-    if s.len() <= max_len {
+    if s.chars().count() <= max_len {
         return s;
     }
 
@@ -40,20 +40,22 @@ fn shorten_path(path: &Path, max_len: usize) -> String {
     // Try ~/…/parent/filename
     if let Some(ref parent) = parent_name {
         let candidate = format!("{}/\u{2026}/{}/{}", prefix, parent, filename);
-        if candidate.len() <= max_len {
+        if candidate.chars().count() <= max_len {
             return candidate;
         }
     }
 
     // Try ~/…/filename
     let candidate = format!("{}/\u{2026}/{}", prefix, filename);
-    if candidate.len() <= max_len {
+    if candidate.chars().count() <= max_len {
         return candidate;
     }
 
-    // Truncate the right side
+    // Truncate the right side on character boundaries
     let avail = max_len.saturating_sub(1);
-    format!("\u{2026}{}", &s[s.len().saturating_sub(avail)..])
+    let total_chars = s.chars().count();
+    let suffix: String = s.chars().skip(total_chars.saturating_sub(avail)).collect();
+    format!("\u{2026}{}", suffix)
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +66,8 @@ pub struct BitcoinConfigView {
     pub save_message: Option<String>,
     pub warning_message: Option<String>,
     pub sidebar_focused: bool,
+    /// True when entries have been committed (via CommitEdit) but not yet saved to disk.
+    pub dirty: bool,
 }
 
 impl BitcoinConfigView {
@@ -75,12 +79,11 @@ impl BitcoinConfigView {
             save_message: None,
             warning_message: None,
             sidebar_focused: true,
+            dirty: false,
         }
     }
 
     pub fn handle_input(&mut self, key: KeyEvent, entries: &[ConfigEntry]) -> AppAction {
-        self.save_message = None;
-
         if self.editing {
             match key.code {
                 KeyCode::Enter => {
@@ -88,6 +91,7 @@ impl BitcoinConfigView {
                         AppAction::CommitEdit(self.selected_index, self.edit_input.clone());
                     self.editing = false;
                     self.edit_input.clear();
+                    self.save_message = None;
                     action
                 }
                 KeyCode::Esc => {
@@ -111,24 +115,28 @@ impl BitcoinConfigView {
                     if self.selected_index > 0 {
                         self.selected_index -= 1;
                     }
+                    self.save_message = None;
                     AppAction::None
                 }
                 KeyCode::Down => {
                     if self.selected_index + 1 < entries.len() {
                         self.selected_index += 1;
                     }
+                    self.save_message = None;
                     AppAction::None
                 }
                 KeyCode::Enter => {
                     if !entries.is_empty() {
                         self.edit_input = entries[self.selected_index].value.clone();
                         self.editing = true;
+                        self.save_message = None;
                     }
                     AppAction::None
                 }
                 KeyCode::Char('s') => AppAction::SaveBitcoinConfig,
                 KeyCode::Esc => {
                     self.sidebar_focused = true;
+                    self.save_message = None;
                     AppAction::None
                 }
                 _ => AppAction::None,
@@ -199,25 +207,47 @@ impl BitcoinConfigView {
         let mut list_state = ListState::default();
         list_state.select(Some(app.bitcoin_config_view.selected_index));
 
-        // " Bitcoin Configuration ---  " = 28 chars fixed, 2 for borders
-        const FIXED: usize = 30;
+        // Border style: dim both panels when the user is navigating the main sidebar
+        let panel_style = if app.bitcoin_config_view.sidebar_focused {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+
+        let dirty = app.bitcoin_config_view.dirty;
+        const FIXED: usize = 33;
         let path_max = (panels[0].width as usize).saturating_sub(FIXED);
         let title = match &app.bitcoin_conf_path {
             Some(path) => format!(
-                " Bitcoin Configuration --- {} ",
+                " {}Bitcoin Configuration --- {} ",
+                if dirty { "● " } else { "" },
                 shorten_path(path, path_max)
             ),
             None => " Bitcoin Configuration ".to_string(),
         };
+        let title_style = if dirty {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default()
+        };
 
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(title))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title)
+                    .title_style(title_style)
+                    .border_style(panel_style),
+            )
             .highlight_style(Style::default().bg(Color::DarkGray));
 
         f.render_stateful_widget(list, panels[0], &mut list_state);
 
         // Right panel: detail and edit field
-        let right_block = Block::default().borders(Borders::ALL).title(" Detail ");
+        let right_block = Block::default()
+            .borders(Borders::ALL)
+            .title(" Detail ")
+            .border_style(panel_style);
         let inner = right_block.inner(panels[1]);
         f.render_widget(right_block, panels[1]);
 
@@ -234,7 +264,7 @@ impl BitcoinConfigView {
             let type_label = entry
                 .schema
                 .as_ref()
-                .map(|s| format!("{:?}", s.config_type))
+                .map(|s| format!("{}", s.config_type))
                 .unwrap_or_default();
 
             let rows = Layout::default()
@@ -265,11 +295,15 @@ impl BitcoinConfigView {
 
             if editing {
                 f.render_widget(
-                    Paragraph::new(format!("{}_", edit_input))
+                    Paragraph::new(edit_input.as_str())
                         .block(Block::default().borders(Borders::ALL))
                         .style(Style::default().fg(Color::Yellow)),
                     rows[4],
                 );
+                let cursor_x = (rows[4].x + 1 + edit_input.chars().count() as u16)
+                    .min(rows[4].x + rows[4].width.saturating_sub(2));
+                let cursor_y = rows[4].y + 1;
+                f.set_cursor_position((cursor_x, cursor_y));
             } else {
                 let (display, style) = if entry.enabled {
                     (
@@ -320,6 +354,7 @@ mod tests {
             value: value.to_string(),
             enabled,
             schema: None,
+            section: None,
         }
     }
 
@@ -341,7 +376,7 @@ mod tests {
         let p = Path::new("/a/very/long/path/to/parent/file.conf");
         let result = shorten_path(p, 20);
         assert!(result.contains("file.conf"));
-        assert!(result.len() <= 25);
+        assert!(result.chars().count() <= 20);
     }
 
     #[test]
@@ -351,6 +386,7 @@ mod tests {
         let p = Path::new(long_parent);
         let result = shorten_path(p, 18);
         assert!(result.contains("file.conf"));
+        assert!(result.chars().count() <= 18);
     }
 
     #[test]
@@ -358,7 +394,22 @@ mod tests {
         // Even filename alone doesn't fit → truncate with ellipsis
         let p = Path::new("/a/b/c/d/e/verylongfilename.conf");
         let result = shorten_path(p, 5);
-        assert!(result.starts_with('\u{2026}') || result.len() <= 5);
+        assert!(result.starts_with('\u{2026}'));
+        assert!(result.chars().count() <= 5);
+    }
+
+    #[test]
+    fn shorten_path_multibyte_chars_respected() {
+        // Each of these chars is 3 bytes but 1 column; byte-length checks would fail here
+        let p = Path::new("/日本語/パス/ファイル.conf");
+        let result = shorten_path(p, 15);
+        // Must not exceed 15 columns regardless of byte width
+        assert!(
+            result.chars().count() <= 15,
+            "got {} chars: {}",
+            result.chars().count(),
+            result
+        );
     }
 
     #[test]
@@ -520,12 +571,69 @@ mod tests {
     }
 
     #[test]
-    fn any_key_clears_save_message() {
+    fn navigation_clears_save_message() {
+        let entries = vec![entry("a", "1", true), entry("b", "2", true)];
+
+        // Up clears it
+        let mut view = BitcoinConfigView::new();
+        view.selected_index = 1;
+        view.save_message = Some("saved".to_string());
+        view.handle_input(key(KeyCode::Up), &entries);
+        assert!(view.save_message.is_none());
+
+        // Down clears it
+        let mut view = BitcoinConfigView::new();
+        view.save_message = Some("saved".to_string());
+        view.handle_input(key(KeyCode::Down), &entries);
+        assert!(view.save_message.is_none());
+
+        // Enter (start editing) clears it
+        let mut view = BitcoinConfigView::new();
+        view.save_message = Some("saved".to_string());
+        view.handle_input(key(KeyCode::Enter), &entries);
+        assert!(view.save_message.is_none());
+
+        // Esc (back to sidebar) clears it
+        let mut view = BitcoinConfigView::new();
+        view.save_message = Some("saved".to_string());
+        view.handle_input(key(KeyCode::Esc), &entries);
+        assert!(view.save_message.is_none());
+    }
+
+    #[test]
+    fn save_key_does_not_clear_save_message() {
+        let mut view = BitcoinConfigView::new();
+        view.save_message = Some("Configuration correctly saved".to_string());
+        let entries = vec![entry("rpcuser", "alice", true)];
+
+        let action = view.handle_input(key(KeyCode::Char('s')), &entries);
+        assert!(matches!(action, AppAction::SaveBitcoinConfig));
+        assert_eq!(
+            view.save_message.as_deref(),
+            Some("Configuration correctly saved"),
+            "save_message must not be cleared when pressing s"
+        );
+    }
+
+    #[test]
+    fn commit_edit_clears_save_message() {
+        let mut view = BitcoinConfigView::new();
+        view.editing = true;
+        view.edit_input = "newval".to_string();
+        view.save_message = Some("saved".to_string());
+        let entries = vec![entry("rpcuser", "alice", true)];
+
+        view.handle_input(key(KeyCode::Enter), &entries);
+        assert!(view.save_message.is_none());
+    }
+
+    #[test]
+    fn unrecognised_key_preserves_save_message() {
         let mut view = BitcoinConfigView::new();
         view.save_message = Some("saved".to_string());
         let entries = vec![entry("rpcuser", "alice", true)];
 
-        view.handle_input(key(KeyCode::Up), &entries);
-        assert!(view.save_message.is_none());
+        view.handle_input(key(KeyCode::F(1)), &entries);
+        assert_eq!(view.save_message.as_deref(), Some("saved"));
     }
 }

@@ -4,7 +4,10 @@
 
 use anyhow::Result;
 use config::{Config, File, FileFormat};
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 /// Core Config
 #[derive(Debug, Clone)]
@@ -285,6 +288,19 @@ pub enum ConfigType {
     Address,
 }
 
+impl std::fmt::Display for ConfigType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigType::Bool => write!(f, "boolean"),
+            ConfigType::Int => write!(f, "integer"),
+            ConfigType::Float => write!(f, "float"),
+            ConfigType::String => write!(f, "string"),
+            ConfigType::Path => write!(f, "path"),
+            ConfigType::Address => write!(f, "address"),
+        }
+    }
+}
+
 /// Category of a configuration option
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigCategory {
@@ -333,6 +349,7 @@ pub struct ConfigEntry {
     pub value: String,
     pub schema: Option<ConfigSchema>,
     pub enabled: bool,
+    pub section: Option<String>,
 }
 
 /// Returns the default schema for all known bitcoin.conf options
@@ -1252,16 +1269,18 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
                     value: schema.default.clone(),
                     schema: Some(schema),
                     enabled: false,
+                    section: None,
                 });
             }
             return Ok(entries);
         }
     };
 
-    let mut config_keys: HashSet<String> = HashSet::new();
+    // Maps key name -> section it was first seen in (None = top-level)
+    let mut config_keys: HashMap<String, Option<String>> = HashMap::new();
     let sections = vec!["", "main", "test", "signet", "regtest"];
 
-    // Collect all keys from all sections
+    // Collect all keys from all sections, preserving which section each key came from
     for section in &sections {
         if let Ok(table) = if section.is_empty() {
             config.get_table("")
@@ -1274,7 +1293,12 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
                 } else {
                     key.clone()
                 };
-                config_keys.insert(actual_key);
+                let key_section = if section.is_empty() {
+                    None
+                } else {
+                    Some((*section).to_string())
+                };
+                config_keys.entry(actual_key).or_insert(key_section);
             }
         }
     }
@@ -1284,44 +1308,41 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
         let key = &schema.key;
         let mut value = schema.default.clone();
         let mut enabled = false;
+        let mut entry_section: Option<String> = None;
 
-        for section in &sections {
+        'find_section: for section in &sections {
             let lookup_key = if section.is_empty() {
                 key.clone()
             } else {
                 format!("{}.{}", section, key)
             };
 
-            if let Ok(val) = config.get_string(&lookup_key) {
-                value = val;
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
-            }
-
-            if let Ok(val) = config.get_bool(&lookup_key) {
-                value = if val {
+            let resolved = if let Ok(val) = config.get_string(&lookup_key) {
+                Some(val)
+            } else if let Ok(val) = config.get_bool(&lookup_key) {
+                Some(if val {
                     "1".to_string()
                 } else {
                     "0".to_string()
+                })
+            } else if let Ok(val) = config.get_int(&lookup_key) {
+                Some(val.to_string())
+            } else if let Ok(val) = config.get_float(&lookup_key) {
+                Some(val.to_string())
+            } else {
+                None
+            };
+
+            if let Some(v) = resolved {
+                value = v;
+                enabled = true;
+                found_keys.insert(key.clone());
+                entry_section = if section.is_empty() {
+                    None
+                } else {
+                    Some((*section).to_string())
                 };
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
-            }
-
-            if let Ok(val) = config.get_int(&lookup_key) {
-                value = val.to_string();
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
-            }
-
-            if let Ok(val) = config.get_float(&lookup_key) {
-                value = val.to_string();
-                enabled = true;
-                found_keys.insert(key.clone());
-                break;
+                break 'find_section;
             }
         }
 
@@ -1330,48 +1351,40 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
             value,
             schema: Some(schema.clone()),
             enabled,
+            section: entry_section,
         });
     }
 
     // Add unknown config keys (not in schema)
-    for config_key in &config_keys {
+    for (config_key, key_section) in &config_keys {
         if !found_keys.contains(config_key) {
-            // Try to get value from various sections
-            let mut value = String::new();
-            for section in &sections {
-                let lookup_key = if section.is_empty() {
-                    config_key.clone()
-                } else {
-                    format!("{}.{}", section, config_key)
-                };
+            let lookup_key = match key_section {
+                None => config_key.clone(),
+                Some(s) => format!("{}.{}", s, config_key),
+            };
 
-                if let Ok(val) = config.get_string(&lookup_key) {
-                    value = val;
-                    break;
+            let value = if let Ok(val) = config.get_string(&lookup_key) {
+                val
+            } else if let Ok(val) = config.get_bool(&lookup_key) {
+                if val {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
                 }
-                if let Ok(val) = config.get_bool(&lookup_key) {
-                    value = if val {
-                        "1".to_string()
-                    } else {
-                        "0".to_string()
-                    };
-                    break;
-                }
-                if let Ok(val) = config.get_int(&lookup_key) {
-                    value = val.to_string();
-                    break;
-                }
-                if let Ok(val) = config.get_float(&lookup_key) {
-                    value = val.to_string();
-                    break;
-                }
-            }
+            } else if let Ok(val) = config.get_int(&lookup_key) {
+                val.to_string()
+            } else if let Ok(val) = config.get_float(&lookup_key) {
+                val.to_string()
+            } else {
+                String::new()
+            };
 
             entries.push(ConfigEntry {
                 key: config_key.clone(),
                 value,
                 schema: None,
                 enabled: true,
+                section: key_section.clone(),
             });
         }
     }
@@ -1379,15 +1392,32 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     Ok(entries)
 }
 
-/// Writes enabled entries back to the config file as `key=value` lines.
+/// Writes enabled entries back to the config file
 pub fn save_config(path: &Path, entries: &[ConfigEntry]) -> Result<()> {
+    use std::collections::BTreeMap;
     use std::io::Write;
+
     let mut file = std::fs::File::create(path)?;
+    let mut sectioned: BTreeMap<String, Vec<&ConfigEntry>> = BTreeMap::new();
+
     for entry in entries {
-        if entry.enabled {
+        if !entry.enabled {
+            continue;
+        }
+        match &entry.section {
+            None => writeln!(file, "{}={}", entry.key, entry.value)?,
+            Some(s) => sectioned.entry(s.clone()).or_default().push(entry),
+        }
+    }
+
+    // Write each named section
+    for (section, section_entries) in &sectioned {
+        writeln!(file, "\n[{}]", section)?;
+        for entry in section_entries {
             writeln!(file, "{}={}", entry.key, entry.value)?;
         }
     }
+
     Ok(())
 }
 
@@ -1748,6 +1778,7 @@ zmqpubhashtx=tcp://127.0.0.1:28333
             value: "value".to_string(),
             schema: None,
             enabled: true,
+            section: None,
         };
         let cloned = entry.clone();
         assert_eq!(entry.key, cloned.key);
@@ -1785,18 +1816,21 @@ zmqpubhashtx=tcp://127.0.0.1:28333
                 value: "alice".to_string(),
                 enabled: true,
                 schema: None,
+                section: None,
             },
             ConfigEntry {
                 key: "rpcport".to_string(),
                 value: "8332".to_string(),
                 enabled: false,
                 schema: None,
+                section: None,
             },
             ConfigEntry {
                 key: "server".to_string(),
                 value: "1".to_string(),
                 enabled: true,
                 schema: None,
+                section: None,
             },
         ];
 
@@ -1824,16 +1858,102 @@ zmqpubhashtx=tcp://127.0.0.1:28333
         let (_dir, path) = create_temp_config("rpcuser=bob\nserver=1\n");
 
         let entries = parse_config(&path).unwrap();
-        // All parsed entries from a known-good file should round-trip
         save_config(&path, &entries).unwrap();
 
         let reparsed = parse_config(&path).unwrap();
         let enabled: Vec<_> = reparsed.iter().filter(|e| e.enabled).collect();
+
         assert!(
             enabled
                 .iter()
                 .any(|e| e.key == "rpcuser" && e.value == "bob")
         );
         assert!(enabled.iter().any(|e| e.key == "server" && e.value == "1"));
+
+        // No disabled entry should have been promoted to enabled by the round-trip
+        let originally_disabled_count = entries.iter().filter(|e| !e.enabled).count();
+        let after_disabled_count = reparsed.iter().filter(|e| !e.enabled).count();
+        assert_eq!(
+            originally_disabled_count, after_disabled_count,
+            "round-trip must not enable previously-disabled entries"
+        );
+
+        // No extra enabled entries should appear
+        let originally_enabled_count = entries.iter().filter(|e| e.enabled).count();
+        assert_eq!(
+            enabled.len(),
+            originally_enabled_count,
+            "round-trip must not introduce extra enabled entries"
+        );
+    }
+
+    #[test]
+    fn save_config_preserves_sections() {
+        // A config with keys in different sections
+        let (_dir, path) = create_temp_config("[main]\nrpcuser=alice\n\n[test]\nrpcport=18332\n");
+
+        let entries = parse_config(&path).unwrap();
+
+        // Verify sections were captured during parse
+        let main_entry = entries.iter().find(|e| e.key == "rpcuser" && e.enabled);
+        let test_entry = entries.iter().find(|e| e.key == "rpcport" && e.enabled);
+        assert!(main_entry.is_some(), "rpcuser should be parsed");
+        assert!(test_entry.is_some(), "rpcport should be parsed");
+        assert_eq!(main_entry.unwrap().section.as_deref(), Some("main"));
+        assert_eq!(test_entry.unwrap().section.as_deref(), Some("test"));
+
+        // Save then re-parse
+        save_config(&path, &entries).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("[main]"), "expected [main] section header");
+        assert!(saved.contains("[test]"), "expected [test] section header");
+
+        let reparsed = parse_config(&path).unwrap();
+        let rpcuser = reparsed
+            .iter()
+            .find(|e| e.key == "rpcuser" && e.enabled)
+            .unwrap();
+        let rpcport = reparsed
+            .iter()
+            .find(|e| e.key == "rpcport" && e.enabled)
+            .unwrap();
+        assert_eq!(rpcuser.value, "alice");
+        assert_eq!(rpcport.value, "18332");
+        assert_eq!(rpcuser.section.as_deref(), Some("main"));
+        assert_eq!(rpcport.section.as_deref(), Some("test"));
+    }
+
+    #[test]
+    fn save_config_sections_written_after_top_level() {
+        // Entries with mixed sections: top-level first, then named sections
+        let entries = vec![
+            ConfigEntry {
+                key: "daemon".to_string(),
+                value: "1".to_string(),
+                enabled: true,
+                schema: None,
+                section: None,
+            },
+            ConfigEntry {
+                key: "rpcport".to_string(),
+                value: "18332".to_string(),
+                enabled: true,
+                schema: None,
+                section: Some("test".to_string()),
+            },
+        ];
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        save_config(&path, &entries).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let daemon_pos = content.find("daemon=1").unwrap();
+        let section_pos = content.find("[test]").unwrap();
+        assert!(
+            daemon_pos < section_pos,
+            "top-level entries should come before section headers"
+        );
+        assert!(content.contains("rpcport=18332"));
     }
 }
