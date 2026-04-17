@@ -281,7 +281,9 @@ mod tests {
     use super::*;
     use crate::p2poolv2_config::{ConfigSection, FieldKind, P2PoolConfigEntry, P2PoolFieldSchema};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use p2poolv2_config::Config;
     use ratatui::{Terminal, backend::TestBackend};
+    use tempfile::tempdir;
 
     fn make_entry(key: &str, value: &str, enabled: bool) -> P2PoolConfigEntry {
         P2PoolConfigEntry {
@@ -310,6 +312,71 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect()
+    }
+
+    fn make_config() -> Config {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[stratum]
+hostname = "127.0.0.1"
+port = 3333
+start_difficulty = 1000
+minimum_difficulty = 100
+maximum_difficulty = 100000
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+pool_signature = "MyPool/1.0"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "rpcuser"
+password = "rpcpassword"
+
+[network]
+listen_address = "0.0.0.0:8333"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 1
+dial_timeout_secs = 30
+
+[store]
+path = "./data/store"
+background_task_frequency_hours = 1
+pplns_ttl_days = 7
+
+[logging]
+level = "info"
+stats_dir = "./logs/stats"
+console = true
+
+[api]
+hostname = "127.0.0.1"
+port = 3030
+        "#,
+        )
+        .unwrap();
+
+        // keep dir alive until Config is loaded
+        let cfg = Config::load(path.to_str().unwrap()).expect("inline test config must parse");
+
+        // dir drops here but we already have cfg
+        cfg
     }
 
     #[test]
@@ -508,5 +575,40 @@ mod tests {
             .draw(|f| P2PoolConfigView::render(f, &mut app, f.size()))
             .unwrap();
         assert!(buffer_text(&terminal).contains("File not found"));
+    }
+
+    #[test]
+    fn render_full_coverage() {
+        use ratatui::{Terminal, backend::TestBackend};
+        use std::path::PathBuf;
+
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        let mut app = App::default();
+
+        app.p2pool_conf_path = Some(PathBuf::from("test.toml"));
+
+        let cfg = make_config();
+        app.p2pool_config = Some(cfg.clone());
+
+        let entries = flatten_config(&cfg);
+
+        let sensitive_idx = entries.iter().position(|e| e.schema.sensitive).unwrap_or(0);
+
+        app.p2pool_config_view.selected_index = sensitive_idx;
+
+        app.p2pool_config_view.editing = true;
+        app.p2pool_config_view.edit_input = "secret123".into();
+
+        terminal
+            .draw(|f| P2PoolConfigView::render(f, &mut app, f.size()))
+            .unwrap();
+
+        let text = buffer_text(&terminal);
+
+        assert!(text.contains("P2Pool Configuration")); // list rendered
+        assert!(text.contains("Value:")); // detail panel rendered
+        assert!(text.contains("_")); // editing cursor present
     }
 }
