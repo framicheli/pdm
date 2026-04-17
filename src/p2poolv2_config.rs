@@ -780,4 +780,119 @@ port = 3030
         let mut cfg = make_config();
         assert!(apply_edit(&mut cfg, 9999, "x").is_err());
     }
+
+    #[test]
+    fn config_section_display_outputs_correct_strings() {
+        use super::ConfigSection;
+
+        let cases = vec![
+            (ConfigSection::Stratum, "stratum"),
+            (ConfigSection::BitcoinRpc, "bitcoinrpc"),
+            (ConfigSection::Network, "network"),
+            (ConfigSection::Store, "store"),
+            (ConfigSection::Logging, "logging"),
+            (ConfigSection::Api, "api"),
+        ];
+
+        for (section, expected) in cases {
+            assert_eq!(section.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn apply_edit_covers_multiple_field_types() {
+        use super::{ConfigSection, apply_edit, flatten_config};
+
+        let mut cfg = make_config();
+        let entries = flatten_config(&cfg);
+
+        let idx = |section: ConfigSection, key: &str| {
+            entries
+                .iter()
+                .position(|e| e.section == section && e.key == key)
+                .expect("field must exist")
+        };
+
+        // String field
+        apply_edit(
+            &mut cfg,
+            idx(ConfigSection::Stratum, "hostname"),
+            "new.host",
+        )
+        .unwrap();
+        assert_eq!(cfg.stratum.hostname, "new.host");
+
+        // Numeric field
+        apply_edit(&mut cfg, idx(ConfigSection::Stratum, "port"), "5555").unwrap();
+        assert_eq!(cfg.stratum.port, 5555);
+
+        // Optional cleared
+        apply_edit(&mut cfg, idx(ConfigSection::Stratum, "pool_signature"), "").unwrap();
+        assert!(cfg.stratum.pool_signature.is_none());
+
+        // Optional set
+        apply_edit(&mut cfg, idx(ConfigSection::Stratum, "donation"), "25").unwrap();
+        assert_eq!(cfg.stratum.donation, Some(25));
+
+        // CSV parsing
+        apply_edit(
+            &mut cfg,
+            idx(ConfigSection::Network, "dial_peers"),
+            "a:1,b:2",
+        )
+        .unwrap();
+        assert_eq!(cfg.network.dial_peers, vec!["a:1", "b:2"]);
+
+        // Enum parsing
+        apply_edit(&mut cfg, idx(ConfigSection::Stratum, "network"), "signet").unwrap();
+        assert_eq!(cfg.stratum.network.to_string(), "signet");
+
+        // Hex parsing
+        apply_edit(
+            &mut cfg,
+            idx(ConfigSection::Stratum, "version_mask"),
+            "1fffe000",
+        )
+        .unwrap();
+        assert_eq!(cfg.stratum.version_mask, 0x1fffe000);
+
+        // Bool parsing
+        apply_edit(&mut cfg, idx(ConfigSection::Logging, "console"), "false").unwrap();
+        assert_eq!(cfg.logging.console, Some(false));
+    }
+
+    #[test]
+    fn apply_edit_rejects_invalid_inputs() {
+        use super::{apply_edit, flatten_config};
+
+        let mut cfg = make_config();
+        let entries = flatten_config(&cfg);
+
+        // Invalid number
+        let port_idx = entries.iter().position(|e| e.key == "port").unwrap();
+        assert!(apply_edit(&mut cfg, port_idx, "notanumber").is_err());
+
+        // Invalid bool
+        let console_idx = entries.iter().position(|e| e.key == "console").unwrap();
+        assert!(apply_edit(&mut cfg, console_idx, "notabool").is_err());
+
+        // Invalid hex
+        let hex_idx = entries
+            .iter()
+            .position(|e| e.key == "version_mask")
+            .unwrap();
+        assert!(apply_edit(&mut cfg, hex_idx, "zzzz").is_err());
+    }
+
+    #[test]
+    fn apply_edit_unknown_field_hits_fallback_branch() {
+        use super::apply_edit;
+
+        let mut cfg = make_config();
+
+        // Out of bounds → triggers error path
+        let result = apply_edit(&mut cfg, usize::MAX, "value");
+
+        assert!(result.is_err());
+    }
 }
