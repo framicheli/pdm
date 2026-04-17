@@ -19,6 +19,7 @@ fn hint(key: &str, desc: &str) -> Vec<Span<'static>> {
 }
 
 impl StatusBar {
+    #[must_use] 
     pub fn new() -> Self {
         Self
     }
@@ -37,7 +38,7 @@ impl StatusBar {
             CurrentScreen::BitcoinConfig if app.bitcoin_conf_path.is_some() => {
                 if let Some(msg) = &app.bitcoin_config_view.save_message {
                     spans.push(Span::styled(
-                        format!(" ✓ {}  ", msg),
+                        format!(" ✓ {msg}  "),
                         Style::default().fg(Color::Green),
                     ));
                 } else if app.bitcoin_config_view.editing {
@@ -61,7 +62,7 @@ impl StatusBar {
             CurrentScreen::BitcoinConfig => {
                 if let Some(msg) = &app.bitcoin_config_view.warning_message {
                     spans.push(Span::styled(
-                        format!(" ⚠ {}  ", msg),
+                        format!(" ⚠ {msg}  "),
                         Style::default().fg(Color::Yellow),
                     ));
                     spans.extend(hint("Enter", "Try again"));
@@ -72,16 +73,32 @@ impl StatusBar {
                 }
             }
             CurrentScreen::Settings => {
-                if app.settings_view.editing {
-                    spans.extend(hint("Enter", "Confirm"));
-                    spans.extend(hint("Esc", "Cancel"));
+                if let Some(err) = &app.settings_view.save_error {
+                    spans.push(Span::styled(
+                        format!(" ⚠ {err}  "),
+                        Style::default().fg(Color::Red),
+                    ));
                 } else if app.settings_view.sidebar_focused {
                     spans.extend(hint("↑↓", "Navigate sidebar"));
                     spans.extend(hint("Enter", "Focus settings"));
                 } else {
+                    let s = &app.settings;
+                    let idx = app.settings_view.selected_index;
+                    let field_is_set = match idx {
+                        0 => s.bitcoin_conf_path.is_some(),
+                        1 => s.p2pool_conf_path.is_some(),
+                        2 => s.ln_conf_path.is_some(),
+                        3 => s.shares_market_conf_path.is_some(),
+                        4 => s.settings_dir_override.is_some(),
+                        _ => false,
+                    };
                     spans.extend(hint("↑↓", "Navigate"));
-                    spans.extend(hint("Enter", "Edit"));
-                    spans.extend(hint("s", "Save"));
+                    if idx < 4 {
+                        spans.extend(hint("Enter", "Browse file"));
+                    }
+                    if field_is_set {
+                        spans.extend(hint("⌫", "Clear"));
+                    }
                     spans.extend(hint("Esc", "Back"));
                 }
             }
@@ -233,23 +250,12 @@ mod tests {
     }
 
     #[test]
-    fn settings_content_focused_shows_edit_save_back() {
+    fn settings_content_focused_shows_browse_back() {
         let mut app = App::new();
         app.current_screen = CurrentScreen::Settings;
         app.settings_view.sidebar_focused = false;
         let output = render_status_bar(&app);
-        assert!(output.contains("Edit"));
-        assert!(output.contains("Save"));
+        assert!(output.contains("Browse file"));
         assert!(output.contains("Back"));
-    }
-
-    #[test]
-    fn settings_editing_shows_confirm_cancel() {
-        let mut app = App::new();
-        app.current_screen = CurrentScreen::Settings;
-        app.settings_view.editing = true;
-        let output = render_status_bar(&app);
-        assert!(output.contains("Confirm"));
-        assert!(output.contains("Cancel"));
     }
 }

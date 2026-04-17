@@ -44,6 +44,15 @@ pub enum CurrentScreen {
     Settings,
 }
 
+/// Identifies which screen (and optionally which field) triggered the file explorer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExplorerTrigger {
+    BitcoinConfig,
+    P2PoolConfig,
+    /// The `usize` is the settings field index (0–3).
+    Settings(usize),
+}
+
 /// Actions that components (Explorer, Editors) can trigger.
 /// This decouples input handling from business logic.
 #[derive(Debug, Clone)]
@@ -62,20 +71,16 @@ pub enum AppAction {
     CommitEdit(usize, String),
     // Saves bitcoin config to disk
     SaveBitcoinConfig,
-    // Commits a settings field edit: (field index, new value string)
-    CommitSettingsEdit(usize, String),
-    // Saves settings to disk
-    SaveSettings,
-    // Begin editing a settings field (pre-fills edit_input from current value)
-    BeginSettingsEdit(usize),
-    // Return focus to sidebar from any content view
-    SidebarFocus,
+    // Open the file explorer to pick a path for a settings field (field index)
+    OpenExplorerForSettings(usize),
+    // Clear a settings field by index, setting it back to None
+    ClearSettingsField(usize),
 }
 
 pub struct App {
     pub current_screen: CurrentScreen,
     pub sidebar_index: usize,
-    pub explorer_trigger: Option<CurrentScreen>,
+    pub explorer_trigger: Option<ExplorerTrigger>,
     pub bitcoin_conf_path: Option<PathBuf>,
     pub p2pool_conf_path: Option<PathBuf>,
     pub explorer: FileExplorer,
@@ -88,6 +93,7 @@ pub struct App {
 }
 
 impl App {
+    #[must_use] 
     pub fn new() -> App {
         App {
             current_screen: CurrentScreen::Home,

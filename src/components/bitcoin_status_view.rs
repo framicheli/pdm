@@ -12,6 +12,7 @@ use ratatui::{
 pub struct BitcoinStatusView;
 
 impl BitcoinStatusView {
+    #[must_use] 
     pub fn new() -> Self {
         Self
     }

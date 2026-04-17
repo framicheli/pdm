@@ -28,9 +28,7 @@ fn shorten_path(path: &Path, max_len: usize) -> String {
 
     let p = Path::new(&s);
     let filename = p
-        .file_name()
-        .map(|f| f.to_string_lossy().into_owned())
-        .unwrap_or_else(|| s.clone());
+        .file_name().map_or_else(|| s.clone(), |f| f.to_string_lossy().into_owned());
     let parent_name = p
         .parent()
         .and_then(|p| p.file_name())
@@ -39,14 +37,14 @@ fn shorten_path(path: &Path, max_len: usize) -> String {
 
     // Try ~/…/parent/filename
     if let Some(ref parent) = parent_name {
-        let candidate = format!("{}/\u{2026}/{}/{}", prefix, parent, filename);
+        let candidate = format!("{prefix}/\u{2026}/{parent}/{filename}");
         if candidate.chars().count() <= max_len {
             return candidate;
         }
     }
 
     // Try ~/…/filename
-    let candidate = format!("{}/\u{2026}/{}", prefix, filename);
+    let candidate = format!("{prefix}/\u{2026}/{filename}");
     if candidate.chars().count() <= max_len {
         return candidate;
     }
@@ -55,7 +53,7 @@ fn shorten_path(path: &Path, max_len: usize) -> String {
     let avail = max_len.saturating_sub(1);
     let total_chars = s.chars().count();
     let suffix: String = s.chars().skip(total_chars.saturating_sub(avail)).collect();
-    format!("\u{2026}{}", suffix)
+    format!("\u{2026}{suffix}")
 }
 
 #[derive(Debug, Clone)]
@@ -66,11 +64,12 @@ pub struct BitcoinConfigView {
     pub save_message: Option<String>,
     pub warning_message: Option<String>,
     pub sidebar_focused: bool,
-    /// True when entries have been committed (via CommitEdit) but not yet saved to disk.
+    /// True when entries have been committed (via `CommitEdit`) but not yet saved to disk.
     pub dirty: bool,
 }
 
 impl BitcoinConfigView {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             selected_index: 0,
@@ -127,7 +126,7 @@ impl BitcoinConfigView {
                 }
                 KeyCode::Enter => {
                     if !entries.is_empty() {
-                        self.edit_input = entries[self.selected_index].value.clone();
+                        self.edit_input.clone_from(&entries[self.selected_index].value);
                         self.editing = true;
                         self.save_message = None;
                     }
@@ -144,7 +143,9 @@ impl BitcoinConfigView {
         }
     }
 
+    #[allow(clippy::too_many_lines)] // Renders two panels with multiple layout passes
     pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
+        const FIXED: usize = 33;
         if app.bitcoin_conf_path.is_none() {
             let p = Paragraph::new("Press [Enter] to select a bitcoin.conf file").block(
                 Block::default()
@@ -168,8 +169,7 @@ impl BitcoinConfigView {
                 let label = entry
                     .schema
                     .as_ref()
-                    .map(|s| s.description.as_str())
-                    .unwrap_or("");
+                    .map_or("", |s| s.description.as_str());
 
                 let (value_display, value_style) = if entry.enabled {
                     (
@@ -182,11 +182,9 @@ impl BitcoinConfigView {
                     let placeholder = entry
                         .schema
                         .as_ref()
-                        .filter(|s| !s.default.is_empty())
-                        .map(|s| format!("default: {}", s.default))
-                        .unwrap_or_else(|| "not set".to_string());
+                        .filter(|s| !s.default.is_empty()).map_or_else(|| "not set".to_string(), |s| format!("default: {}", s.default));
                     (
-                        format!("({})", placeholder),
+                        format!("({placeholder})"),
                         Style::default().fg(Color::DarkGray),
                     )
                 };
@@ -215,7 +213,6 @@ impl BitcoinConfigView {
         };
 
         let dirty = app.bitcoin_config_view.dirty;
-        const FIXED: usize = 33;
         let path_max = (panels[0].width as usize).saturating_sub(FIXED);
         let title = match &app.bitcoin_conf_path {
             Some(path) => format!(
@@ -259,8 +256,7 @@ impl BitcoinConfigView {
             let description = entry
                 .schema
                 .as_ref()
-                .map(|s| s.description.as_str())
-                .unwrap_or("Unknown option");
+                .map_or("Unknown option", |s| s.description.as_str());
             let type_label = entry
                 .schema
                 .as_ref()
@@ -284,7 +280,7 @@ impl BitcoinConfigView {
                 rows[0],
             );
             f.render_widget(
-                Paragraph::new(format!("Type: {}", type_label))
+                Paragraph::new(format!("Type: {type_label}"))
                     .style(Style::default().fg(Color::Gray)),
                 rows[1],
             );
@@ -300,8 +296,10 @@ impl BitcoinConfigView {
                         .style(Style::default().fg(Color::Yellow)),
                     rows[4],
                 );
-                let cursor_x = (rows[4].x + 1 + edit_input.chars().count() as u16)
-                    .min(rows[4].x + rows[4].width.saturating_sub(2));
+                let cursor_x = (rows[4].x
+                    + 1
+                    + u16::try_from(edit_input.chars().count()).unwrap_or(u16::MAX))
+                .min(rows[4].x + rows[4].width.saturating_sub(2));
                 let cursor_y = rows[4].y + 1;
                 f.set_cursor_position((cursor_x, cursor_y));
             } else {
@@ -316,11 +314,9 @@ impl BitcoinConfigView {
                     let placeholder = entry
                         .schema
                         .as_ref()
-                        .filter(|s| !s.default.is_empty())
-                        .map(|s| format!("default: {}", s.default))
-                        .unwrap_or_else(|| "not set".to_string());
+                        .filter(|s| !s.default.is_empty()).map_or_else(|| "not set".to_string(), |s| format!("default: {}", s.default));
                     (
-                        format!("({})", placeholder),
+                        format!("({placeholder})"),
                         Style::default().fg(Color::DarkGray),
                     )
                 };

@@ -12,6 +12,7 @@ use ratatui::{
 pub struct LNConfigView;
 
 impl LNConfigView {
+    #[must_use] 
     pub fn new() -> Self {
         Self
     }

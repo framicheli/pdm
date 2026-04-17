@@ -12,6 +12,7 @@ use ratatui::{
 pub struct SharesMarketView;
 
 impl SharesMarketView {
+    #[must_use] 
     pub fn new() -> Self {
         Self
     }

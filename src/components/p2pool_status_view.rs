@@ -12,6 +12,7 @@ use ratatui::{
 pub struct P2PoolStatusView;
 
 impl P2PoolStatusView {
+    #[must_use] 
     pub fn new() -> Self {
         Self
     }

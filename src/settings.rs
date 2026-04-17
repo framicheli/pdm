@@ -9,28 +9,25 @@ use std::path::PathBuf;
 
 /// Persistent user settings stored in a TOML file.
 ///
-/// Config dir resolution order (first wins):
+/// Config dir resolution order:
 ///   1. `PDM_CONFIG_DIR` environment variable
 ///   2. Platform default via `directories::ProjectDirs`
 ///      - macOS:   ~/Library/Application Support/org.p2pool.pdm/
 ///      - Linux:   ~/.config/pdm/
 ///      - Windows: %APPDATA%\p2pool\pdm\
 ///
-/// The `settings_dir_override` field is persisted and takes effect on the
-/// **next** application start, so there is no risk of writing to two places
-/// in the same session.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     /// Path to the Bitcoin Core config file (bitcoin.conf)
     pub bitcoin_conf_path: Option<PathBuf>,
     /// Path to the p2poolv2 config file
     pub p2pool_conf_path: Option<PathBuf>,
-    /// Path to the Lightning Network config file (reserved)
+    /// Path to the Lightning Network config file
     pub ln_conf_path: Option<PathBuf>,
-    /// Path to the Shares Market config file (reserved)
+    /// Path to the Shares Market config file
     pub shares_market_conf_path: Option<PathBuf>,
     /// If set, the user has chosen a custom settings directory.
-    /// This takes effect on next restart.
+    /// Takes effect on restart.
     pub settings_dir_override: Option<PathBuf>,
 }
 
@@ -39,6 +36,9 @@ pub struct Settings {
 /// Priority:
 ///   1. `PDM_CONFIG_DIR` env var
 ///   2. Platform default via `directories`
+///
+/// # Errors
+/// Returns an error if the platform config directory cannot be determined.
 pub fn config_dir() -> Result<PathBuf> {
     if let Ok(dir) = std::env::var("PDM_CONFIG_DIR") {
         return Ok(PathBuf::from(dir));
@@ -48,26 +48,32 @@ pub fn config_dir() -> Result<PathBuf> {
     Ok(proj.config_local_dir().to_path_buf())
 }
 
-/// Returns the path to the settings file (does not guarantee it exists).
+/// Returns the path to the settings file.
+///
+/// # Errors
+/// Returns an error if [`config_dir`] fails.
 pub fn settings_path() -> Result<PathBuf> {
     Ok(config_dir()?.join("settings.toml"))
 }
 
 /// Loads settings from disk. Returns `Settings::default()` if the file
-/// does not exist or cannot be parsed (never fails fatally).
+/// does not exist or cannot be parsed.
+#[must_use] 
 pub fn load_settings() -> Settings {
-    let path = match settings_path() {
-        Ok(p) => p,
-        Err(_) => return Settings::default(),
+    let Ok(path) = settings_path() else {
+        return Settings::default();
     };
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return Settings::default(),
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Settings::default();
     };
     toml::from_str(&content).unwrap_or_default()
 }
 
 /// Saves settings to disk, creating the config directory if needed.
+///
+/// # Errors
+/// Returns an error if the config directory cannot be determined, the directory
+/// cannot be created, the settings cannot be serialised, or the file cannot be written.
 pub fn save_settings(settings: &Settings) -> Result<()> {
     let path = settings_path()?;
     if let Some(parent) = path.parent() {
@@ -182,15 +188,6 @@ mod tests {
             back.settings_dir_override,
             Some(PathBuf::from("/custom/dir"))
         );
-    }
-
-    #[test]
-    fn load_settings_returns_default_when_file_missing() {
-        // load_settings gracefully handles a non-existent path
-        let s = load_settings();
-        // We can't control where PDM_CONFIG_DIR points in the test runner, but
-        // load_settings must never panic and always returns a valid Settings.
-        let _ = s; // just verify it doesn't panic
     }
 
     #[test]

@@ -17,4 +17,5 @@ p2poolv2_config = { git = "https://github.com/p2poolv2/p2poolv2", package = "p2p
 
 [dev-dependencies]
 insta = "1.44.3"
+serial_test = "3"
 tempfile = "3"
