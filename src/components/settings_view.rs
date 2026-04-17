@@ -12,18 +12,31 @@ use ratatui::{
 /// Number of settings fields.
 pub const FIELD_COUNT: usize = 5;
 
-const FIELD_LABELS: [&str; FIELD_COUNT] = [
-    "Bitcoin config path",
-    "P2Pool config path",
-    "LN config path",
-    "Shares Market config path",
-    "Settings directory override",
+/// Describes how a settings field behaves when Enter is pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldKind {
+    /// Opens a file-explorer dialog so the user can pick a file.
+    FilePicker,
+    /// No file-explorer — the field is a plain directory path that cannot be
+    /// browsed with the built-in explorer (e.g. Settings directory override).
+    DirectoryInput,
+}
+
+/// All settings fields in display order.  Each entry is `(label, kind)`.
+/// The `kind` drives whether Enter opens a file-picker or is a no-op.
+pub const FIELDS: [(&str, FieldKind); FIELD_COUNT] = [
+    ("Bitcoin config path", FieldKind::FilePicker),
+    ("P2Pool config path", FieldKind::FilePicker),
+    ("LN config path", FieldKind::FilePicker),
+    ("Shares Market config path", FieldKind::FilePicker),
+    ("Settings directory override", FieldKind::DirectoryInput),
 ];
 
 #[derive(Debug, Clone)]
 pub struct SettingsView {
     pub selected_index: usize,
     pub sidebar_focused: bool,
+    /// Set when `save_settings` returns an error; displayed in the status bar.
     pub save_error: Option<String>,
 }
 
@@ -39,6 +52,10 @@ impl SettingsView {
 
     /// Called only when the settings content panel is focused (`sidebar_focused` = false).
     pub fn handle_input(&mut self, key: KeyEvent) -> AppAction {
+        debug_assert!(
+            !self.sidebar_focused,
+            "handle_input called while sidebar is focused"
+        );
         match key.code {
             KeyCode::Up => {
                 if self.selected_index > 0 {
@@ -47,13 +64,13 @@ impl SettingsView {
                 AppAction::None
             }
             KeyCode::Down => {
-                if self.selected_index + 1 < FIELD_LABELS.len() {
+                if self.selected_index + 1 < FIELDS.len() {
                     self.selected_index += 1;
                 }
                 AppAction::None
             }
             KeyCode::Enter => {
-                if self.selected_index < 4 {
+                if FIELDS[self.selected_index].1 == FieldKind::FilePicker {
                     AppAction::OpenExplorerForSettings(self.selected_index)
                 } else {
                     AppAction::None
@@ -92,10 +109,10 @@ impl SettingsView {
                 .map(|p| p.to_string_lossy().into_owned()),
         ];
 
-        let items: Vec<ListItem> = FIELD_LABELS
+        let items: Vec<ListItem> = FIELDS
             .iter()
             .zip(values.iter())
-            .map(|(label, val)| {
+            .map(|((label, _kind), val)| {
                 let (display, style) = match val {
                     Some(v) => (
                         v.clone(),
@@ -152,6 +169,14 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::empty())
     }
 
+    /// Returns a view with the content panel focused (sidebar_focused = false),
+    /// satisfying the precondition of `handle_input`.
+    fn content_focused_view() -> SettingsView {
+        let mut view = SettingsView::new();
+        view.sidebar_focused = false;
+        view
+    }
+
     #[test]
     fn new_starts_at_first_field_sidebar_focused() {
         let view = SettingsView::new();
@@ -161,14 +186,14 @@ mod tests {
 
     #[test]
     fn browsing_down_increments_index() {
-        let mut view = SettingsView::new();
+        let mut view = content_focused_view();
         view.handle_input(key(KeyCode::Down));
         assert_eq!(view.selected_index, 1);
     }
 
     #[test]
     fn browsing_down_clamped_at_last_field() {
-        let mut view = SettingsView::new();
+        let mut view = content_focused_view();
         view.selected_index = FIELD_COUNT - 1;
         view.handle_input(key(KeyCode::Down));
         assert_eq!(view.selected_index, FIELD_COUNT - 1);
@@ -176,7 +201,7 @@ mod tests {
 
     #[test]
     fn browsing_up_decrements_index() {
-        let mut view = SettingsView::new();
+        let mut view = content_focused_view();
         view.selected_index = 2;
         view.handle_input(key(KeyCode::Up));
         assert_eq!(view.selected_index, 1);
@@ -184,37 +209,45 @@ mod tests {
 
     #[test]
     fn browsing_up_clamped_at_zero() {
-        let mut view = SettingsView::new();
+        let mut view = content_focused_view();
         view.selected_index = 0;
         view.handle_input(key(KeyCode::Up));
         assert_eq!(view.selected_index, 0);
     }
 
     #[test]
-    fn browsing_enter_opens_explorer_for_file_fields() {
-        let mut view = SettingsView::new();
-        for idx in 0..4 {
-            view.selected_index = idx;
-            let action = view.handle_input(key(KeyCode::Enter));
-            assert!(
-                matches!(action, AppAction::OpenExplorerForSettings(i) if i == idx),
-                "expected OpenExplorerForSettings({idx})"
-            );
+    fn browsing_enter_opens_explorer_for_file_picker_fields() {
+        let mut view = content_focused_view();
+        for (idx, (_, kind)) in FIELDS.iter().enumerate() {
+            if *kind == FieldKind::FilePicker {
+                view.selected_index = idx;
+                let action = view.handle_input(key(KeyCode::Enter));
+                assert!(
+                    matches!(action, AppAction::OpenExplorerForSettings(i) if i == idx),
+                    "expected OpenExplorerForSettings({idx})"
+                );
+            }
         }
     }
 
     #[test]
-    fn browsing_enter_on_dir_override_is_noop() {
-        let mut view = SettingsView::new();
-        view.selected_index = 4;
-        let action = view.handle_input(key(KeyCode::Enter));
-        assert!(matches!(action, AppAction::None));
+    fn browsing_enter_on_directory_input_is_noop() {
+        let mut view = content_focused_view();
+        for (idx, (_, kind)) in FIELDS.iter().enumerate() {
+            if *kind == FieldKind::DirectoryInput {
+                view.selected_index = idx;
+                let action = view.handle_input(key(KeyCode::Enter));
+                assert!(
+                    matches!(action, AppAction::None),
+                    "expected None for DirectoryInput field {idx}"
+                );
+            }
+        }
     }
 
     #[test]
     fn browsing_esc_sets_sidebar_focused_flag() {
-        let mut view = SettingsView::new();
-        view.sidebar_focused = false;
+        let mut view = content_focused_view();
         let action = view.handle_input(key(KeyCode::Esc));
         assert!(matches!(action, AppAction::None));
         assert!(view.sidebar_focused);
@@ -222,14 +255,14 @@ mod tests {
 
     #[test]
     fn browsing_other_key_is_noop() {
-        let mut view = SettingsView::new();
+        let mut view = content_focused_view();
         let action = view.handle_input(key(KeyCode::F(5)));
         assert!(matches!(action, AppAction::None));
     }
 
     #[test]
     fn backspace_returns_clear_for_any_field() {
-        let mut view = SettingsView::new();
+        let mut view = content_focused_view();
         for idx in 0..FIELD_COUNT {
             view.selected_index = idx;
             let action = view.handle_input(key(KeyCode::Backspace));

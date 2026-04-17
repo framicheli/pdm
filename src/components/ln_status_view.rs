@@ -12,7 +12,7 @@ use ratatui::{
 pub struct LNStatusView;
 
 impl LNStatusView {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self
     }

@@ -12,12 +12,12 @@ use ratatui::{
 use std::path::Path;
 
 /// Shortens a path to fit within `max_len` Unicode scalar values (terminal columns)
-fn shorten_path(path: &Path, max_len: usize) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
+/// `home` value of the `HOME` environment variable if set
+fn shorten_path(path: &Path, max_len: usize, home: &str) -> String {
     let full = path.to_string_lossy().into_owned();
 
-    let s = if !home.is_empty() && full.starts_with(&home) {
-        format!("~{}", full.strip_prefix(&home).unwrap_or(&full))
+    let s = if !home.is_empty() && full.starts_with(home) {
+        format!("~{}", full.strip_prefix(home).unwrap_or(&full))
     } else {
         full
     };
@@ -28,7 +28,8 @@ fn shorten_path(path: &Path, max_len: usize) -> String {
 
     let p = Path::new(&s);
     let filename = p
-        .file_name().map_or_else(|| s.clone(), |f| f.to_string_lossy().into_owned());
+        .file_name()
+        .map_or_else(|| s.clone(), |f| f.to_string_lossy().into_owned());
     let parent_name = p
         .parent()
         .and_then(|p| p.file_name())
@@ -69,7 +70,7 @@ pub struct BitcoinConfigView {
 }
 
 impl BitcoinConfigView {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             selected_index: 0,
@@ -126,7 +127,8 @@ impl BitcoinConfigView {
                 }
                 KeyCode::Enter => {
                     if !entries.is_empty() {
-                        self.edit_input.clone_from(&entries[self.selected_index].value);
+                        self.edit_input
+                            .clone_from(&entries[self.selected_index].value);
                         self.editing = true;
                         self.save_message = None;
                     }
@@ -166,10 +168,7 @@ impl BitcoinConfigView {
             .bitcoin_data
             .iter()
             .map(|entry| {
-                let label = entry
-                    .schema
-                    .as_ref()
-                    .map_or("", |s| s.description.as_str());
+                let label = entry.schema.as_ref().map_or("", |s| s.description.as_str());
 
                 let (value_display, value_style) = if entry.enabled {
                     (
@@ -182,7 +181,11 @@ impl BitcoinConfigView {
                     let placeholder = entry
                         .schema
                         .as_ref()
-                        .filter(|s| !s.default.is_empty()).map_or_else(|| "not set".to_string(), |s| format!("default: {}", s.default));
+                        .filter(|s| !s.default.is_empty())
+                        .map_or_else(
+                            || "not set".to_string(),
+                            |s| format!("default: {}", s.default),
+                        );
                     (
                         format!("({placeholder})"),
                         Style::default().fg(Color::DarkGray),
@@ -218,7 +221,7 @@ impl BitcoinConfigView {
             Some(path) => format!(
                 " {}Bitcoin Configuration --- {} ",
                 if dirty { "● " } else { "" },
-                shorten_path(path, path_max)
+                shorten_path(path, path_max, &app.home_dir)
             ),
             None => " Bitcoin Configuration ".to_string(),
         };
@@ -296,10 +299,9 @@ impl BitcoinConfigView {
                         .style(Style::default().fg(Color::Yellow)),
                     rows[4],
                 );
-                let cursor_x = (rows[4].x
-                    + 1
-                    + u16::try_from(edit_input.chars().count()).unwrap_or(u16::MAX))
-                .min(rows[4].x + rows[4].width.saturating_sub(2));
+                let cursor_x =
+                    (rows[4].x + 1 + u16::try_from(edit_input.chars().count()).unwrap_or(u16::MAX))
+                        .min(rows[4].x + rows[4].width.saturating_sub(2));
                 let cursor_y = rows[4].y + 1;
                 f.set_cursor_position((cursor_x, cursor_y));
             } else {
@@ -314,7 +316,11 @@ impl BitcoinConfigView {
                     let placeholder = entry
                         .schema
                         .as_ref()
-                        .filter(|s| !s.default.is_empty()).map_or_else(|| "not set".to_string(), |s| format!("default: {}", s.default));
+                        .filter(|s| !s.default.is_empty())
+                        .map_or_else(
+                            || "not set".to_string(),
+                            |s| format!("default: {}", s.default),
+                        );
                     (
                         format!("({placeholder})"),
                         Style::default().fg(Color::DarkGray),
@@ -363,14 +369,14 @@ mod tests {
     #[test]
     fn shorten_path_short_enough_unchanged() {
         let p = Path::new("/foo/bar.conf");
-        assert_eq!(shorten_path(p, 100), "/foo/bar.conf");
+        assert_eq!(shorten_path(p, 100, ""), "/foo/bar.conf");
     }
 
     #[test]
     fn shorten_path_collapses_to_parent_filename() {
         // Path with no HOME prefix, long enough to trigger collapse
         let p = Path::new("/a/very/long/path/to/parent/file.conf");
-        let result = shorten_path(p, 20);
+        let result = shorten_path(p, 20, "");
         assert!(result.contains("file.conf"));
         assert!(result.chars().count() <= 20);
     }
@@ -380,7 +386,7 @@ mod tests {
         // Parent/filename still too long → ~/…/filename
         let long_parent = "/a/b/c/d/longlonglonglongparent/file.conf";
         let p = Path::new(long_parent);
-        let result = shorten_path(p, 18);
+        let result = shorten_path(p, 18, "");
         assert!(result.contains("file.conf"));
         assert!(result.chars().count() <= 18);
     }
@@ -389,7 +395,7 @@ mod tests {
     fn shorten_path_last_resort_truncation() {
         // Even filename alone doesn't fit → truncate with ellipsis
         let p = Path::new("/a/b/c/d/e/verylongfilename.conf");
-        let result = shorten_path(p, 5);
+        let result = shorten_path(p, 5, "");
         assert!(result.starts_with('\u{2026}'));
         assert!(result.chars().count() <= 5);
     }
@@ -398,7 +404,7 @@ mod tests {
     fn shorten_path_multibyte_chars_respected() {
         // Each of these chars is 3 bytes but 1 column; byte-length checks would fail here
         let p = Path::new("/日本語/パス/ファイル.conf");
-        let result = shorten_path(p, 15);
+        let result = shorten_path(p, 15, "");
         // Must not exceed 15 columns regardless of byte width
         assert!(
             result.chars().count() <= 15,
@@ -415,7 +421,7 @@ mod tests {
             return; // skip on systems without HOME
         }
         let p = Path::new(&home).join("myfile.conf");
-        let result = shorten_path(&p, 200);
+        let result = shorten_path(&p, 200, &home);
         assert!(
             result.starts_with('~'),
             "expected ~ prefix, got: {}",

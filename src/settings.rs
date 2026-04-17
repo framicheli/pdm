@@ -58,7 +58,7 @@ pub fn settings_path() -> Result<PathBuf> {
 
 /// Loads settings from disk. Returns `Settings::default()` if the file
 /// does not exist or cannot be parsed.
-#[must_use] 
+#[must_use]
 pub fn load_settings() -> Settings {
     let Ok(path) = settings_path() else {
         return Settings::default();
@@ -66,7 +66,10 @@ pub fn load_settings() -> Settings {
     let Ok(content) = std::fs::read_to_string(&path) else {
         return Settings::default();
     };
-    toml::from_str(&content).unwrap_or_default()
+    toml::from_str(&content).unwrap_or_else(|e| {
+        eprintln!("pdm: failed to parse settings: {e}");
+        Settings::default()
+    })
 }
 
 /// Saves settings to disk, creating the config directory if needed.

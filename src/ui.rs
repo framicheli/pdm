@@ -229,4 +229,14 @@ mod tests {
         terminal.draw(|f| ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!(terminal.backend());
     }
+
+    #[test]
+    fn test_settings_screen_render() {
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 8; // Settings
+        app.toggle_menu();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
 }

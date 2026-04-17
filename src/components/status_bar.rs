@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::app::{App, CurrentScreen};
+use crate::components::settings_view::{FIELDS, FieldKind};
 use ratatui::{prelude::*, widgets::Paragraph};
 
 #[derive(Clone, Debug)]
@@ -19,7 +20,7 @@ fn hint(key: &str, desc: &str) -> Vec<Span<'static>> {
 }
 
 impl StatusBar {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -93,7 +94,10 @@ impl StatusBar {
                         _ => false,
                     };
                     spans.extend(hint("↑↓", "Navigate"));
-                    if idx < 4 {
+                    if FIELDS
+                        .get(idx)
+                        .is_some_and(|f| f.1 == FieldKind::FilePicker)
+                    {
                         spans.extend(hint("Enter", "Browse file"));
                     }
                     if field_is_set {
@@ -257,5 +261,27 @@ mod tests {
         let output = render_status_bar(&app);
         assert!(output.contains("Browse file"));
         assert!(output.contains("Back"));
+    }
+
+    #[test]
+    fn settings_content_focused_field_set_shows_clear_hint() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 0;
+        app.settings.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_focused_field_unset_no_clear_hint() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 0;
+        // bitcoin_conf_path is None by default
+        let output = render_status_bar(&app);
+        assert!(!output.contains("Clear"));
     }
 }

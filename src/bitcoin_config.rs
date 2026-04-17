@@ -9,8 +9,6 @@ use std::{
     path::Path,
 };
 
-// TODO: These structs (Core, Network, RPC, Wallet, Debugging, Mining, Relay, ZMQ, BitcoinConfig)
-// are aspirational — intended for a future typed config API. They are not constructed anywhere yet.
 #[allow(dead_code)]
 /// Core Config
 #[derive(Debug, Clone)]
@@ -336,7 +334,7 @@ pub struct ConfigSchema {
 }
 
 impl ConfigSchema {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         key: &str,
         default: &str,
@@ -366,7 +364,7 @@ pub struct ConfigEntry {
 
 /// Returns the default schema for all known bitcoin.conf options
 #[must_use]
-#[allow(clippy::too_many_lines)] // Necessarily long: one entry per known bitcoin.conf key
+#[allow(clippy::too_many_lines)]
 pub fn get_default_schema() -> Vec<ConfigSchema> {
     vec![
         // Core options

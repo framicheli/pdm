@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use p2poolv2_config::Config as P2PoolConfig;
-use pdm::app::{App, AppAction, CurrentScreen, ExplorerTrigger, MAX_BITCOIN_STATUS_TAB, MAX_SIDEBAR_INDEX};
+use pdm::app::{
+    App, AppAction, CurrentScreen, ExplorerTrigger, MAX_BITCOIN_STATUS_TAB, MAX_SIDEBAR_INDEX,
+};
 use pdm::bitcoin_config::{
     parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
 };
@@ -71,9 +73,16 @@ where
                 continue;
             }
 
-            // Hard exit (always allowed)
-            if key.code == KeyCode::Char('q')
-                || (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'))
+            // Ctrl-C is always a hard exit.
+            // 'q' is suppressed while a text-input field is active so the
+            // character can be typed into the field.  Extend this guard when
+            // new screens with text-input modes are added.
+            let text_input_active = app.current_screen == CurrentScreen::BitcoinConfig
+                && !app.bitcoin_config_view.sidebar_focused
+                && app.bitcoin_config_view.editing;
+
+            if (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'))
+                || (!text_input_active && key.code == KeyCode::Char('q'))
             {
                 return Ok(());
             }
@@ -115,7 +124,7 @@ where
                         match key.code {
                             KeyCode::Enter => {
                                 app.bitcoin_config_view.warning_message = None;
-                                AppAction::OpenExplorer(CurrentScreen::BitcoinConfig)
+                                AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig)
                             }
                             KeyCode::Esc => AppAction::CloseModal,
                             k => sidebar_nav(k, app),
@@ -140,7 +149,7 @@ where
                 _ => match key.code {
                     KeyCode::Enter => {
                         if matches!(app.current_screen, CurrentScreen::P2PoolConfig) {
-                            AppAction::OpenExplorer(app.current_screen)
+                            AppAction::OpenExplorer(ExplorerTrigger::P2PoolConfig)
                         } else {
                             AppAction::None
                         }
@@ -172,9 +181,10 @@ fn bootstrap_from_settings(app: &mut App) {
     if let Some(path) = &app.settings.p2pool_conf_path {
         app.p2pool_conf_path = Some(path.clone());
         if let Some(p) = path.to_str()
-            && let Ok(cfg) = P2PoolConfig::load(p) {
-                app.p2pool_config = Some(cfg);
-            }
+            && let Ok(cfg) = P2PoolConfig::load(p)
+        {
+            app.p2pool_config = Some(cfg);
+        }
     }
 }
 
@@ -187,11 +197,7 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
         AppAction::ToggleMenu => app.toggle_menu(),
 
         AppAction::OpenExplorer(trigger) => {
-            app.explorer_trigger = Some(if trigger == CurrentScreen::P2PoolConfig {
-                ExplorerTrigger::P2PoolConfig
-            } else {
-                ExplorerTrigger::BitcoinConfig
-            });
+            app.explorer_trigger = Some(trigger);
             app.current_screen = CurrentScreen::FileExplorer;
         }
 
@@ -211,9 +217,10 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                     ExplorerTrigger::P2PoolConfig => {
                         app.p2pool_conf_path = Some(path.clone());
                         if let Some(p) = path.to_str()
-                            && let Ok(cfg) = P2PoolConfig::load(p) {
-                                app.p2pool_config = Some(cfg);
-                            }
+                            && let Ok(cfg) = P2PoolConfig::load(p)
+                        {
+                            app.p2pool_config = Some(cfg);
+                        }
                         app.current_screen = CurrentScreen::P2PoolConfig;
                         app.settings.p2pool_conf_path = Some(path.clone());
                         if let Err(e) = save_settings(&app.settings) {
@@ -275,8 +282,8 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
         }
 
         AppAction::SaveBitcoinConfig => {
-            if let Some(path) = app.bitcoin_conf_path.clone() {
-                save_bitcoin_config(&path, &app.bitcoin_data)?;
+            if let Some(path) = &app.bitcoin_conf_path {
+                save_bitcoin_config(path, &app.bitcoin_data)?;
                 app.bitcoin_config_view.save_message =
                     Some("Configuration correctly saved".to_string());
                 app.bitcoin_config_view.dirty = false;
@@ -365,7 +372,7 @@ mod tests {
 
         // Open explorer
         handle_action(
-            AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+            AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
         )
         .unwrap();
@@ -402,7 +409,7 @@ mod tests {
         app.explorer.load_directory();
 
         handle_action(
-            AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+            AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
         )
         .unwrap();
@@ -427,7 +434,7 @@ mod tests {
         let mut app = App::new();
 
         let exited = handle_action(
-            AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+            AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
         )
         .unwrap();
@@ -577,7 +584,7 @@ mod tests {
         app.sidebar_index = 1;
         app.toggle_menu();
         handle_action(
-            AppAction::OpenExplorer(CurrentScreen::BitcoinConfig),
+            AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
         )
         .unwrap();

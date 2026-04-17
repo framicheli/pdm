@@ -32,7 +32,7 @@ impl Default for FileExplorer {
 
 impl FileExplorer {
     /// Creates a new `FileExplorer` starting at the process working directory.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let mut explorer = Self {
@@ -174,7 +174,10 @@ impl FileExplorer {
         let mut state = ListState::default();
         state.select(Some(app.explorer.selected_index));
 
-        let title = format!(" Select File (Current: {}) ", app.explorer.current_dir.display());
+        let title = format!(
+            " Select File (Current: {}) ",
+            app.explorer.current_dir.display()
+        );
 
         let list = List::new(files)
             .block(Block::default().borders(Borders::ALL).title(title))

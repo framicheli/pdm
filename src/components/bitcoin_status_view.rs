@@ -3,16 +3,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::app::{App, BITCOIN_STATUS_TABS};
+
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Tabs, Wrap},
 };
 
+// Bitcoin Status tabs count
+const _: () = assert!(
+    BITCOIN_STATUS_TABS.len() == 4,
+    "update tab dispatch match in bitcoin_status_view.rs"
+);
+
 #[derive(Debug, Clone)]
 pub struct BitcoinStatusView;
 
 impl BitcoinStatusView {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self
     }

@@ -12,12 +12,12 @@ use ratatui::{
 pub struct SharesMarketView;
 
 impl SharesMarketView {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
 
-    // LN Status
+    // Shares Market
     pub fn render(f: &mut Frame, _app: &mut App, area: Rect) {
         let p = Paragraph::new("Shares Market").block(
             Block::default()

@@ -49,7 +49,7 @@ pub enum CurrentScreen {
 pub enum ExplorerTrigger {
     BitcoinConfig,
     P2PoolConfig,
-    /// The `usize` is the settings field index (0–3).
+    /// The `usize` is the settings field index (0–`FIELD_COUNT - 1`).
     Settings(usize),
 }
 
@@ -61,8 +61,8 @@ pub enum AppAction {
     Quit,
     ToggleMenu,
     Navigate(CurrentScreen),
-    // Triggers the file explorer for a specific screen
-    OpenExplorer(CurrentScreen),
+    // Triggers the file explorer; the trigger identifies the caller
+    OpenExplorer(ExplorerTrigger),
     // Returned by the Explorer when user picks a file
     FileSelected(PathBuf),
     // Closes the explorer without selection
@@ -90,10 +90,13 @@ pub struct App {
     pub bitcoin_data: Vec<BitcoinEntry>,
     pub bitcoin_status_tab: usize,
     pub settings: Settings,
+    /// Cached value of the `HOME` environment variable, used for path display.
+    /// Populated once at startup to avoid repeated syscalls during rendering.
+    pub home_dir: String,
 }
 
 impl App {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> App {
         App {
             current_screen: CurrentScreen::Home,
@@ -108,6 +111,7 @@ impl App {
             bitcoin_data: Vec::new(),
             bitcoin_status_tab: 0,
             settings: Settings::default(),
+            home_dir: std::env::var("HOME").unwrap_or_default(),
         }
     }
 
