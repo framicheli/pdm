@@ -20,6 +20,41 @@ pub struct P2PoolConfigView {
     pub sidebar_focused: bool,
 }
 
+/// Returns `(display_string, style)` for a config entry value.
+pub fn entry_display(entry: &P2PoolConfigEntry) -> (String, Style) {
+    if entry.enabled {
+        let v = if entry.schema.sensitive {
+            "••••••••".to_string()
+        } else {
+            entry.value.clone()
+        };
+        (
+            v,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        let placeholder = match &entry.schema.kind {
+            FieldKind::Optional { default: Some(d) } => format!("default: {}", d),
+            _ => "not set".to_string(),
+        };
+        (
+            format!("({})", placeholder),
+            Style::default().fg(Color::DarkGray),
+        )
+    }
+}
+
+/// Returns the edit-mode display string (masked if sensitive).
+pub fn edit_display(input: &str, sensitive: bool) -> String {
+    if sensitive {
+        "•".repeat(input.len()) + "_"
+    } else {
+        format!("{}_", input)
+    }
+}
+
 impl P2PoolConfigView {
     pub fn new() -> Self {
         Self {
@@ -129,27 +164,7 @@ impl P2PoolConfigView {
         let items: Vec<ListItem> = entries
             .iter()
             .map(|entry| {
-                let (value_display, value_style) = if entry.enabled {
-                    (
-                        if entry.schema.sensitive {
-                            "••••••••".to_string()
-                        } else {
-                            entry.value.clone()
-                        },
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    let placeholder = match &entry.schema.kind {
-                        FieldKind::Optional { default: Some(d) } => format!("default: {}", d),
-                        _ => "not set".to_string(),
-                    };
-                    (
-                        format!("({})", placeholder),
-                        Style::default().fg(Color::DarkGray),
-                    )
-                };
+                let (value_display, value_style) = entry_display(entry);
 
                 ListItem::new(vec![
                     Line::from(vec![
@@ -229,40 +244,14 @@ impl P2PoolConfigView {
             );
 
             if editing {
-                let display = if entry.schema.sensitive {
-                    "•".repeat(edit_input.len()) + "_"
-                } else {
-                    format!("{}_", edit_input)
-                };
                 f.render_widget(
-                    Paragraph::new(display)
+                    Paragraph::new(edit_display(&edit_input, entry.schema.sensitive))
                         .block(Block::default().borders(Borders::ALL))
                         .style(Style::default().fg(Color::Yellow)),
                     rows[4],
                 );
             } else {
-                let (display, style) = if entry.enabled {
-                    let v = if entry.schema.sensitive {
-                        "••••••••".to_string()
-                    } else {
-                        entry.value.clone()
-                    };
-                    (
-                        v,
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    let placeholder = match &entry.schema.kind {
-                        FieldKind::Optional { default: Some(d) } => format!("default: {}", d),
-                        _ => "not set".to_string(),
-                    };
-                    (
-                        format!("({})", placeholder),
-                        Style::default().fg(Color::DarkGray),
-                    )
-                };
+                let (display, style) = entry_display(entry);
                 f.render_widget(
                     Paragraph::new(display)
                         .block(Block::default().borders(Borders::ALL))
@@ -292,6 +281,7 @@ mod tests {
     use super::*;
     use crate::p2poolv2_config::{ConfigSection, FieldKind, P2PoolConfigEntry, P2PoolFieldSchema};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn make_entry(key: &str, value: &str, enabled: bool) -> P2PoolConfigEntry {
         P2PoolConfigEntry {
@@ -310,6 +300,16 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    fn buffer_text(terminal: &Terminal<TestBackend>) -> String {
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
     }
 
     #[test]
@@ -433,5 +433,80 @@ mod tests {
         let entries = vec![make_entry("hostname", "127.0.0.1", true)];
         view.handle_input(key(KeyCode::Up), &entries);
         assert!(view.save_message.is_none());
+    }
+
+    #[test]
+    fn entry_display_enabled_non_sensitive() {
+        let entry = make_entry("host", "127.0.0.1", true);
+        let (display, style) = entry_display(&entry);
+        assert_eq!(display, "127.0.0.1");
+        assert_eq!(style.fg, Some(Color::White));
+    }
+
+    #[test]
+    fn entry_display_enabled_sensitive() {
+        let mut entry = make_entry("pass", "secret", true);
+        entry.schema.sensitive = true;
+        let (display, _) = entry_display(&entry);
+        assert_eq!(display, "••••••••");
+    }
+
+    #[test]
+    fn entry_display_disabled_with_default() {
+        let mut entry = make_entry("port", "", false);
+        entry.schema.kind = FieldKind::Optional {
+            default: Some("3333".into()),
+        };
+        let (display, style) = entry_display(&entry);
+        assert_eq!(display, "(default: 3333)");
+        assert_eq!(style.fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn entry_display_disabled_no_default() {
+        let entry = make_entry("port", "", false);
+        let (display, _) = entry_display(&entry);
+        assert_eq!(display, "(not set)");
+    }
+
+    #[test]
+    fn edit_display_non_sensitive() {
+        assert_eq!(edit_display("hello", false), "hello_");
+    }
+
+    #[test]
+    fn edit_display_sensitive_masks_chars() {
+        assert_eq!(edit_display("abc", true), "•••_");
+    }
+
+    #[test]
+    fn edit_display_sensitive_empty_input() {
+        assert_eq!(edit_display("", true), "_");
+    }
+
+    #[test]
+    fn render_no_path_shows_prompt() {
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::default();
+        app.p2pool_conf_path = None;
+        app.p2pool_config_view.warning_message = None;
+        terminal
+            .draw(|f| P2PoolConfigView::render(f, &mut app, f.size()))
+            .unwrap();
+        assert!(buffer_text(&terminal).contains("Press [Enter] to select"));
+    }
+
+    #[test]
+    fn render_no_path_shows_warning_message() {
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::default();
+        app.p2pool_conf_path = None;
+        app.p2pool_config_view.warning_message = Some("File not found".into());
+        terminal
+            .draw(|f| P2PoolConfigView::render(f, &mut app, f.size()))
+            .unwrap();
+        assert!(buffer_text(&terminal).contains("File not found"));
     }
 }

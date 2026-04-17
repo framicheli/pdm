@@ -360,6 +360,124 @@ mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
 
+    /// Write a  p2pool TOML to `path`.
+    fn write_valid_p2pool_toml(path: &std::path::Path) {
+        std::fs::write(
+            path,
+            r#"
+[network]
+listen_address = "/ip4/127.0.0.1/tcp/6884"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 100
+dial_timeout_secs = 30
+
+[store]
+path = "./store.db"
+background_task_frequency_hours = 24
+pplns_ttl_days = 7
+
+[stratum]
+hostname = "pool.example.com"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+solo_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+pool_signature = "P2Poolv2"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[logging]
+file = "./logs/p2pool.log"
+console = true
+level = "info"
+stats_dir = "./logs/stats"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        )
+        .unwrap();
+    }
+
+    /// Write a TOML that parses fine but has an empty hostname (fails sanity check).
+    fn write_empty_hostname_toml(path: &std::path::Path) {
+        std::fs::write(
+            path,
+            r#"
+[network]
+listen_address = "/ip4/127.0.0.1/tcp/6884"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 100
+dial_timeout_secs = 30
+
+[store]
+path = "./store.db"
+background_task_frequency_hours = 24
+pplns_ttl_days = 7
+
+[stratum]
+hostname = ""   # empty hostname should trigger a warning
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+solo_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+pool_signature = "P2Poolv2"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[logging]
+file = "./logs/p2pool.log"
+console = true
+level = "info"
+stats_dir = "./logs/stats"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        )
+        .unwrap();
+    }
+
     #[test]
     fn test_app_integration_smoke_test() {
         let backend = TestBackend::new(80, 25);
@@ -648,7 +766,7 @@ mod tests {
         assert!(app.bitcoin_config_view.sidebar_focused);
     }
 
-    // --- toggle_menu state cleanup ---
+    // toggle_menu state cleanup
 
     #[test]
     fn toggle_menu_clears_bitcoin_config_messages_on_navigate_away() {
@@ -698,7 +816,7 @@ mod tests {
         );
     }
 
-    // --- dirty flag ---
+    // dirty flag
 
     #[test]
     fn commit_edit_sets_dirty_flag() {
@@ -766,5 +884,245 @@ mod tests {
         // bitcoin_data is empty; CommitEdit with bad index must not set dirty
         handle_action(AppAction::CommitEdit(99, "val".to_string()), &mut app).unwrap();
         assert!(!app.bitcoin_config_view.dirty);
+    }
+
+    #[test]
+    fn file_selected_valid_p2pool_config_sets_state() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
+
+        handle_action(AppAction::FileSelected(path.clone()), &mut app).unwrap();
+
+        assert_eq!(app.p2pool_conf_path, Some(path));
+        assert!(app.p2pool_config.is_some());
+        assert!(!app.p2pool_config_view.sidebar_focused);
+        assert!(app.p2pool_config_view.warning_message.is_none());
+        assert_eq!(app.p2pool_config_view.selected_index, 0);
+        assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
+    }
+
+    #[test]
+    fn file_selected_p2pool_empty_hostname_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_empty_hostname_toml(&path);
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
+
+        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+
+        assert!(app.p2pool_conf_path.is_none());
+        assert!(app.p2pool_config.is_none());
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
+        assert!(msg.contains("does not appear to be a P2Pool config"));
+        assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
+    }
+
+    #[test]
+    fn file_selected_p2pool_unparseable_file_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "this is not toml ][[\n").unwrap();
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
+
+        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+
+        assert!(app.p2pool_conf_path.is_none());
+        assert!(app.p2pool_config.is_none());
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
+        assert!(msg.contains("Failed to load P2Pool config"));
+        assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
+    }
+
+    #[test]
+    fn commit_p2pool_edit_valid_value_clears_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+            let mut app = App::new();
+            app.p2pool_config = Some(cfg);
+            app.p2pool_config_view.warning_message = Some("old warning".to_string());
+
+            let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+            let hostname_idx = entries.iter().position(|e| e.key == "hostname").unwrap();
+
+            handle_action(
+                AppAction::CommitP2PoolEdit(hostname_idx, "new.example.com".to_string()),
+                &mut app,
+            )
+            .unwrap();
+
+            assert!(app.p2pool_config_view.warning_message.is_none());
+        }
+    }
+
+    #[test]
+    fn commit_p2pool_edit_invalid_value_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+            let mut app = App::new();
+            app.p2pool_config = Some(cfg);
+
+            let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+            let port_idx = entries.iter().position(|e| e.key == "port").unwrap();
+
+            handle_action(
+                AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
+                &mut app,
+            )
+            .unwrap();
+
+            assert!(app.p2pool_config_view.warning_message.is_some());
+        }
+    }
+
+    #[test]
+    fn commit_p2pool_edit_noop_when_no_config_loaded() {
+        let mut app = App::new();
+        // p2pool_config is None — action must not panic or set any state
+        let result = handle_action(AppAction::CommitP2PoolEdit(0, "val".to_string()), &mut app);
+        assert!(result.is_ok());
+        assert!(app.p2pool_config_view.warning_message.is_none());
+    }
+
+    #[test]
+    fn save_p2pool_config_writes_file_and_sets_message() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+            let mut app = App::new();
+            app.p2pool_conf_path = Some(path.clone());
+            app.p2pool_config = Some(cfg);
+
+            handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+            assert!(path.exists());
+            assert_eq!(
+                app.p2pool_config_view.save_message.as_deref(),
+                Some("Configuration correctly saved")
+            );
+            assert!(app.p2pool_config_view.warning_message.is_none());
+        }
+    }
+
+    #[test]
+    fn save_p2pool_config_noop_when_no_path() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+            let mut app = App::new();
+            // path intentionally not set
+            app.p2pool_config = Some(cfg);
+
+            handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+            assert!(app.p2pool_config_view.save_message.is_none());
+            assert!(app.p2pool_config_view.warning_message.is_none());
+        }
+    }
+
+    #[test]
+    fn save_p2pool_config_unwritable_path_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+            let mut app = App::new();
+            // Point at a directory that doesn't exist so writing fails
+            app.p2pool_conf_path = Some(std::path::PathBuf::from("/nonexistent/config.toml"));
+            app.p2pool_config = Some(cfg);
+
+            handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+            assert!(app.p2pool_config_view.warning_message.is_some());
+            let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
+            assert!(msg.contains("Save failed"));
+        }
+    }
+
+    #[test]
+    fn save_p2pool_config_preserves_comments_and_updates_value() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        // Write a file with a comment that must survive the round-trip
+        std::fs::write(
+            &path,
+            "# keep this comment\n[stratum]\nhostname = \"old.example.com\"\nport = 3333\n\
+             [consensus]\nnetwork = \"mainnet\"\n",
+        )
+        .unwrap();
+
+        if let Ok(mut cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+            cfg.stratum.hostname = "new.example.com".to_string();
+
+            save_p2pool_config(&path, &cfg).unwrap();
+
+            let written = std::fs::read_to_string(&path).unwrap();
+            assert!(written.contains("# keep this comment"));
+            assert!(written.contains("new.example.com"));
+            assert!(!written.contains("old.example.com"));
+        }
+    }
+
+    #[test]
+    fn save_p2pool_config_skips_unset_optional_fields() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        // File deliberately omits an optional field
+        std::fs::write(
+            &path,
+            "[stratum]\nhostname = \"pool.example.com\"\nport = 3333\n\
+             [consensus]\nnetwork = \"mainnet\"\n",
+        )
+        .unwrap();
+
+        let original = std::fs::read_to_string(&path).unwrap();
+
+        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
+            save_p2pool_config(&path, &cfg).unwrap();
+
+            let written = std::fs::read_to_string(&path).unwrap();
+            // No new keys should have been injected
+            assert_eq!(written.lines().count(), original.lines().count());
+        }
     }
 }
