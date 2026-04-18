@@ -7,6 +7,7 @@ use pdm::app::{App, AppAction, CurrentScreen, MAX_BITCOIN_STATUS_TAB, MAX_SIDEBA
 use pdm::bitcoin_config::{
     parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
 };
+use pdm::p2poolv2_config::{apply_edit as apply_p2pool_edit, flatten_config};
 use pdm::ui;
 
 use anyhow::Result;
@@ -117,6 +118,38 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<()> 
                     }
                 }
 
+                // P2Pool config
+                CurrentScreen::P2PoolConfig => {
+                    if app.p2pool_conf_path.is_some() {
+                        if app.p2pool_config_view.sidebar_focused {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    app.p2pool_config_view.sidebar_focused = false;
+                                    AppAction::None
+                                }
+                                k => sidebar_nav(k, app),
+                            }
+                        } else {
+                            // Build flat entry list and delegate to the view
+                            let entries = app
+                                .p2pool_config
+                                .as_ref()
+                                .map(|cfg| flatten_config(cfg))
+                                .unwrap_or_default();
+                            app.p2pool_config_view.handle_input(key, &entries)
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Enter => {
+                                app.p2pool_config_view.warning_message = None;
+                                AppAction::OpenExplorer(CurrentScreen::P2PoolConfig)
+                            }
+                            KeyCode::Esc => AppAction::CloseModal,
+                            k => sidebar_nav(k, app),
+                        }
+                    }
+                }
+
                 _ => match key.code {
                     KeyCode::Enter => {
                         if matches!(app.current_screen, CurrentScreen::P2PoolConfig) {
@@ -157,9 +190,35 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
             if let Some(trigger) = &app.explorer_trigger {
                 match trigger {
                     CurrentScreen::P2PoolConfig => {
-                        app.p2pool_conf_path = Some(path.clone());
-                        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-                            app.p2pool_config = Some(cfg);
+                        match P2PoolConfig::load(path.to_str().unwrap()) {
+                            Ok(cfg) => {
+                                // Sanity check — a valid p2pool config must have
+                                // a stratum section with at least a hostname
+                                if cfg.stratum.hostname.is_empty() {
+                                    app.p2pool_config_view.warning_message = Some(
+                    "File does not appear to be a P2Pool config. Select another file."
+                        .to_string(),
+                );
+                                    app.p2pool_conf_path = None;
+                                    app.p2pool_config = None;
+                                } else {
+                                    app.p2pool_conf_path = Some(path.clone());
+                                    app.p2pool_config = Some(cfg);
+                                    app.p2pool_config_view.sidebar_focused = false;
+                                    app.p2pool_config_view.warning_message = None;
+                                    app.p2pool_config_view.selected_index = 0;
+                                }
+                            }
+                            Err(e) => {
+                                // Config::load failed — wrong file format, missing required
+                                // fields, or a TOML parse error
+                                app.p2pool_config_view.warning_message = Some(format!(
+                                    "Failed to load P2Pool config: {}. Select another file.",
+                                    e
+                                ));
+                                app.p2pool_conf_path = None;
+                                app.p2pool_config = None;
+                            }
                         }
                         app.current_screen = CurrentScreen::P2PoolConfig;
                     }
@@ -220,6 +279,35 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                 app.bitcoin_config_view.dirty = false;
             }
         }
+        AppAction::CommitP2PoolEdit(index, value) => {
+            if let Some(cfg) = app.p2pool_config.as_mut() {
+                match apply_p2pool_edit(cfg, index, &value) {
+                    Ok(()) => {
+                        app.p2pool_config_view.warning_message = None;
+                    }
+                    Err(e) => {
+                        app.p2pool_config_view.warning_message = Some(e);
+                    }
+                }
+            }
+        }
+
+        AppAction::SaveP2PoolConfig => {
+            if let (Some(path), Some(cfg)) =
+                (app.p2pool_conf_path.clone(), app.p2pool_config.as_ref())
+            {
+                match save_p2pool_config(&path, cfg) {
+                    Ok(()) => {
+                        app.p2pool_config_view.save_message =
+                            Some("Configuration correctly saved".to_string());
+                    }
+                    Err(e) => {
+                        app.p2pool_config_view.warning_message =
+                            Some(format!("Save failed: {}", e));
+                    }
+                }
+            }
+        }
 
         AppAction::None => {}
     }
@@ -227,10 +315,204 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
     Ok(false)
 }
 
+/// Matches the TOML type of an existing item and parses the new string
+/// value into that same type. This prevents numeric/bool fields from
+/// being written back as quoted strings (e.g. port = "3333").
+fn typed_toml_item_like(existing: &toml_edit::Item, new_value: &str) -> Result<toml_edit::Item> {
+    if existing.as_integer().is_some() {
+        let parsed = new_value
+            .parse::<i64>()
+            .map_err(|e| anyhow::anyhow!("Expected integer, got '{}': {}", new_value, e))?;
+        Ok(toml_edit::value(parsed))
+    } else if existing.as_float().is_some() {
+        let parsed = new_value
+            .parse::<f64>()
+            .map_err(|e| anyhow::anyhow!("Expected float, got '{}': {}", new_value, e))?;
+        Ok(toml_edit::value(parsed))
+    } else if existing.as_bool().is_some() {
+        let parsed = new_value.parse::<bool>().map_err(|e| {
+            anyhow::anyhow!("Expected bool (true/false), got '{}': {}", new_value, e)
+        })?;
+        Ok(toml_edit::value(parsed))
+    } else if existing.as_str().is_some() {
+        Ok(toml_edit::value(new_value.to_owned()))
+    } else {
+        Err(anyhow::anyhow!(
+            "Unsupported TOML value type for key: {}",
+            existing
+        ))
+    }
+}
+
+/// Serialize the live `P2PoolConfig` back to TOML and write it to disk.
+/// Saves P2Pool config by patching the original TOML file in-place.
+/// Uses toml_edit so comments and formatting are preserved.
+fn save_p2pool_config(path: &std::path::Path, cfg: &P2PoolConfig) -> Result<()> {
+    use pdm::p2poolv2_config::flatten_config;
+    use toml_edit::DocumentMut;
+
+    // Read the original file so we preserve comments/ordering
+    let original = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read P2Pool config: {}", e))?;
+
+    let mut doc = original
+        .parse::<DocumentMut>()
+        .map_err(|e| anyhow::anyhow!("Failed to parse P2Pool config TOML: {}", e))?;
+
+    // Walk every flattened entry and patch the matching TOML key
+    for entry in flatten_config(cfg) {
+        let section = entry.section.to_string();
+        let key = entry.key.as_str();
+
+        // Skip optional fields that are unset — leave them absent in the file
+        if !entry.enabled {
+            continue;
+        }
+
+        if let Some(table) = doc.get_mut(&section).and_then(|v| v.as_table_mut()) {
+            // Only update keys that already exist in the file to avoid
+            // injecting fields the user intentionally omitted
+            if let Some(existing) = table.get(key) {
+                match typed_toml_item_like(existing, &entry.value) {
+                    Ok(updated) => table[key] = updated,
+                    Err(e) => {
+                        // Soft error — skip this field and continue
+                        // saving the rest rather than aborting entirely
+                        eprintln!("Warning: skipping {}.{}: {}", section, key, e);
+                    }
+                }
+            }
+        }
+    }
+
+    std::fs::write(path, doc.to_string())
+        .map_err(|e| anyhow::anyhow!("Failed to write P2Pool config: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+
+    /// Write a  p2pool TOML to `path`.
+    fn write_valid_p2pool_toml(path: &std::path::Path) {
+        std::fs::write(
+            path,
+            r#"
+[network]
+listen_address = "/ip4/127.0.0.1/tcp/6884"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 100
+dial_timeout_secs = 30
+
+[store]
+path = "./store.db"
+background_task_frequency_hours = 24
+pplns_ttl_days = 7
+
+[stratum]
+hostname = "pool.example.com"
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+solo_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+pool_signature = "P2Poolv2"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[logging]
+file = "./logs/p2pool.log"
+console = true
+level = "info"
+stats_dir = "./logs/stats"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        )
+        .unwrap();
+    }
+
+    /// Write a TOML that parses fine but has an empty hostname (fails sanity check).
+    fn write_empty_hostname_toml(path: &std::path::Path) {
+        std::fs::write(
+            path,
+            r#"
+[network]
+listen_address = "/ip4/127.0.0.1/tcp/6884"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 100
+dial_timeout_secs = 30
+
+[store]
+path = "./store.db"
+background_task_frequency_hours = 24
+pplns_ttl_days = 7
+
+[stratum]
+hostname = ""   # empty hostname should trigger a warning
+port = 3333
+start_difficulty = 10000
+minimum_difficulty = 100
+solo_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+pool_signature = "P2Poolv2"
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "p2pool"
+password = "p2pool"
+
+[logging]
+file = "./logs/p2pool.log"
+console = true
+level = "info"
+stats_dir = "./logs/stats"
+
+[api]
+hostname = "127.0.0.1"
+port = 46884
+"#,
+        )
+        .unwrap();
+    }
 
     #[test]
     fn test_app_integration_smoke_test() {
@@ -461,6 +743,45 @@ mod tests {
     }
 
     #[test]
+    fn commit_p2pool_edit_bad_value_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+        let cfg =
+            P2PoolConfig::load(path.to_str().unwrap()).expect("inline test config must parse");
+
+        let mut app = App::new();
+        app.p2pool_config = Some(cfg);
+
+        // Find the stratum port index in the flattened entries
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let port_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "port")
+            .expect("stratum.port entry must exist");
+
+        handle_action(
+            AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
+            &mut app,
+        )
+        .unwrap();
+
+        // A bad value must surface as a warning, never silently accepted
+        assert!(
+            app.p2pool_config_view.warning_message.is_some(),
+            "expected warning_message to be set for invalid port value"
+        );
+        // The original port must be unchanged
+        assert_eq!(
+            app.p2pool_config.as_ref().unwrap().stratum.port,
+            3333,
+            "port must not be mutated on failed edit"
+        );
+    }
+
+    #[test]
     fn bitcoin_config_sidebar_focus_toggle_via_enter() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         use tempfile::tempdir;
@@ -499,7 +820,7 @@ mod tests {
         assert!(app.bitcoin_config_view.sidebar_focused);
     }
 
-    // --- toggle_menu state cleanup ---
+    // toggle_menu state cleanup
 
     #[test]
     fn toggle_menu_clears_bitcoin_config_messages_on_navigate_away() {
@@ -549,7 +870,7 @@ mod tests {
         );
     }
 
-    // --- dirty flag ---
+    // dirty flag
 
     #[test]
     fn commit_edit_sets_dirty_flag() {
@@ -617,5 +938,411 @@ mod tests {
         // bitcoin_data is empty; CommitEdit with bad index must not set dirty
         handle_action(AppAction::CommitEdit(99, "val".to_string()), &mut app).unwrap();
         assert!(!app.bitcoin_config_view.dirty);
+    }
+
+    #[test]
+    fn file_selected_valid_p2pool_config_sets_state() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
+
+        handle_action(AppAction::FileSelected(path.clone()), &mut app).unwrap();
+
+        assert_eq!(app.p2pool_conf_path, Some(path));
+        assert!(app.p2pool_config.is_some());
+        assert!(!app.p2pool_config_view.sidebar_focused);
+        assert!(app.p2pool_config_view.warning_message.is_none());
+        assert_eq!(app.p2pool_config_view.selected_index, 0);
+        assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
+    }
+
+    #[test]
+    fn file_selected_p2pool_empty_hostname_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_empty_hostname_toml(&path);
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
+
+        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+
+        assert!(app.p2pool_conf_path.is_none());
+        assert!(app.p2pool_config.is_none());
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
+        assert!(msg.contains("does not appear to be a P2Pool config"));
+        assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
+    }
+
+    #[test]
+    fn file_selected_p2pool_unparseable_file_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "this is not toml ][[\n").unwrap();
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(CurrentScreen::P2PoolConfig);
+
+        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+
+        assert!(app.p2pool_conf_path.is_none());
+        assert!(app.p2pool_config.is_none());
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
+        assert!(msg.contains("Failed to load P2Pool config"));
+        assert_eq!(app.current_screen, CurrentScreen::P2PoolConfig);
+    }
+
+    #[test]
+    fn commit_p2pool_edit_valid_value_clears_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        let cfg =
+            P2PoolConfig::load(path.to_str().unwrap()).expect("inline test config must parse");
+        let mut app = App::new();
+        app.p2pool_config = Some(cfg);
+        app.p2pool_config_view.warning_message = Some("old warning".to_string());
+
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let hostname_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "hostname")
+            .expect("stratum.hostname must exist");
+
+        handle_action(
+            AppAction::CommitP2PoolEdit(hostname_idx, "new.example.com".to_string()),
+            &mut app,
+        )
+        .unwrap();
+
+        assert!(
+            app.p2pool_config_view.warning_message.is_none(),
+            "warning must be cleared after a successful edit"
+        );
+        assert_eq!(
+            app.p2pool_config.as_ref().unwrap().stratum.hostname,
+            "new.example.com",
+            "hostname must be updated on successful edit"
+        );
+    }
+
+    #[test]
+    fn commit_p2pool_edit_invalid_value_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        app.p2pool_config = Some(cfg);
+
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let port_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "port")
+            .expect("stratum.port entry must exist");
+
+        handle_action(
+            AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
+            &mut app,
+        )
+        .unwrap();
+
+        assert!(
+            app.p2pool_config_view.warning_message.is_some(),
+            "warning must be set for invalid port value"
+        );
+        assert_eq!(
+            app.p2pool_config.as_ref().unwrap().stratum.port,
+            3333,
+            "port must not be mutated on failed edit"
+        );
+    }
+
+    #[test]
+    fn commit_p2pool_edit_noop_when_no_config_loaded() {
+        let mut app = App::new();
+        // p2pool_config is None — action must not panic or set any state
+        let result = handle_action(AppAction::CommitP2PoolEdit(0, "val".to_string()), &mut app);
+        assert!(result.is_ok());
+        assert!(app.p2pool_config_view.warning_message.is_none());
+    }
+
+    #[test]
+    fn save_p2pool_config_writes_file_and_sets_message() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        app.p2pool_conf_path = Some(path.clone());
+        app.p2pool_config = Some(cfg);
+
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+        assert!(path.exists());
+        assert_eq!(
+            app.p2pool_config_view.save_message.as_deref(),
+            Some("Configuration correctly saved")
+        );
+        assert!(app.p2pool_config_view.warning_message.is_none());
+    }
+
+    #[test]
+    fn save_p2pool_config_noop_when_no_path() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        // path intentionally not set
+        app.p2pool_config = Some(cfg);
+
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+        assert!(app.p2pool_config_view.save_message.is_none());
+        assert!(app.p2pool_config_view.warning_message.is_none());
+    }
+
+    #[test]
+    fn save_p2pool_config_unwritable_path_sets_warning() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        write_valid_p2pool_toml(&path);
+
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        // Point at a directory path so writing as a file fails consistently across OSes
+        app.p2pool_conf_path = Some(dir.path().to_path_buf());
+        app.p2pool_config = Some(cfg);
+
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
+        assert!(msg.contains("Save failed"));
+    }
+
+    #[test]
+    fn save_p2pool_config_preserves_comments_and_updates_value() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        // Write a full valid config with a comment that must survive the round-trip
+        std::fs::write(
+            &path,
+            r#"
+# keep this comment
+[stratum]
+hostname = "old.example.com"
+port = 3333
+start_difficulty = 1000
+minimum_difficulty = 100
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "rpcuser"
+password = "rpcpassword"
+
+[network]
+listen_address = "0.0.0.0:8333"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 1
+dial_timeout_secs = 30
+
+[store]
+path = "./data/store"
+background_task_frequency_hours = 1
+pplns_ttl_days = 7
+
+[logging]
+level = "info"
+stats_dir = "./logs/stats"
+console = true
+
+[api]
+hostname = "127.0.0.1"
+port = 3030
+    "#,
+        )
+        .unwrap();
+
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+
+        let mut app = App::new();
+        app.p2pool_conf_path = Some(path.clone());
+        app.p2pool_config = Some(cfg);
+
+        // Actually mutate the hostname before saving
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let hostname_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "hostname")
+            .expect("stratum.hostname must exist");
+
+        handle_action(
+            AppAction::CommitP2PoolEdit(hostname_idx, "new.example.com".to_string()),
+            &mut app,
+        )
+        .unwrap();
+
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            written.contains("# keep this comment"),
+            "comment must be preserved after save"
+        );
+        assert!(
+            written.contains("new.example.com"),
+            "updated hostname must appear in saved file"
+        );
+        assert!(
+            !written.contains("old.example.com"),
+            "old hostname must not appear in saved file"
+        );
+    }
+
+    #[test]
+    fn save_p2pool_config_skips_unset_optional_fields() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+
+        // Write only required fields — optional fields like pool_signature,
+        // solo_address, donation_address are deliberately absent.
+        // After saving, they must still be absent.
+        std::fs::write(
+            &path,
+            r#"
+[stratum]
+hostname = "127.0.0.1"
+port = 3333
+start_difficulty = 1000
+minimum_difficulty = 100
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "rpcuser"
+password = "rpcpassword"
+
+[network]
+listen_address = "0.0.0.0:8333"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 1
+dial_timeout_secs = 30
+
+[store]
+path = "./data/store"
+background_task_frequency_hours = 1
+pplns_ttl_days = 7
+
+[logging]
+level = "info"
+stats_dir = "./logs/stats"
+console = true
+
+[api]
+hostname = "127.0.0.1"
+port = 3030
+    "#,
+        )
+        .unwrap();
+
+        let original = std::fs::read_to_string(&path).unwrap();
+        let original_line_count = original.lines().count();
+
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+
+        let mut app = App::new();
+        app.p2pool_conf_path = Some(path.clone());
+        app.p2pool_config = Some(cfg);
+
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+
+        assert_eq!(
+            written.lines().count(),
+            original_line_count,
+            "save must not inject new lines for unset optional fields"
+        );
+        assert!(
+            !written.contains("pool_signature"),
+            "unset pool_signature must not be injected"
+        );
+        assert!(
+            !written.contains("solo_address"),
+            "unset solo_address must not be injected"
+        );
+        assert!(
+            !written.contains("donation_address"),
+            "unset donation_address must not be injected"
+        );
     }
 }
