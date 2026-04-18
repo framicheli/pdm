@@ -156,10 +156,41 @@ impl P2PoolConfigView {
             .map(|cfg| flatten_config(cfg))
             .unwrap_or_default();
 
+        // Status bar (warning or save message)
+        // Warning (red) takes priority over save message (green).
+        let status_message = app
+            .p2pool_config_view
+            .warning_message
+            .as_deref()
+            .map(|msg| (msg, Style::default().fg(Color::Red)))
+            .or_else(|| {
+                app.p2pool_config_view
+                    .save_message
+                    .as_deref()
+                    .map(|msg| (msg, Style::default().fg(Color::Green)))
+            });
+
+        // If there is a message, crave a 3-row strip off the top and render the rest of the view beneath it.
+        let content_area = if let Some((msg, style)) = status_message {
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(0)])
+                .split(area);
+
+            let status = Paragraph::new(msg)
+                .style(style)
+                .block(Block::default().borders(Borders::ALL).title(" Status "));
+            f.render_widget(status, layout[0]);
+            layout[1]
+        } else {
+            area
+        };
+
+        // Split panel layout
         let panels = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-            .split(area);
+            .split(content_area);
 
         // Left panel: scrollable entry list
         let items: Vec<ListItem> = entries

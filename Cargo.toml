@@ -16,7 +16,6 @@ toml = "0.8"
 unicode-width = "0.2"
 p2poolv2_config = { git = "https://github.com/p2poolv2/p2poolv2", package = "p2poolv2_config" }
 bitcoin = "0.32.5"
-toml = "0.8"
 toml_edit = "0.22"
 
 [dev-dependencies]
