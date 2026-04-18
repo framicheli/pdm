@@ -430,15 +430,17 @@ pub fn flatten_config(cfg: &Config) -> Vec<P2PoolConfigEntry> {
     e
 }
 
-/// Writes one edited value back into the live `Config`.
-/// Returns `Err` with a user-facing message on parse failure.
-/// This is the write-path counterpart to `flatten_config`.
-pub fn apply_edit(cfg: &mut Config, index: usize, new_value: &str) -> Result<(), String> {
-    let entries = flatten_config(cfg);
-    let entry = entries
-        .get(index)
-        .ok_or_else(|| "index out of range".to_string())?;
-
+/// Inner dispatch for config edits.
+///
+/// Matches a flattened `(section, key)` pair to the corresponding nested field inside `Config` and applies the parsed update.
+///
+/// This is split from `apply_edit()` so tests can directly inject
+/// synthetic entries and explicitly verify the defensive `_ => unknown field` fallback branch, which `flatten_config()` cannot normally produce.
+pub fn dispatch_edit(
+    cfg: &mut Config,
+    entry: &P2PoolConfigEntry,
+    new_value: &str,
+) -> Result<(), String> {
     match (&entry.section, entry.key.as_str()) {
         // Stratum
         (ConfigSection::Stratum, "hostname") => {
@@ -631,6 +633,17 @@ pub fn apply_edit(cfg: &mut Config, index: usize, new_value: &str) -> Result<(),
         _ => return Err(format!("unknown field: {}.{}", entry.section, entry.key)),
     }
     Ok(())
+}
+
+/// Writes an edited flat-row value back into `Config`.
+/// Resolves the selected row from `flatten_config()` and delegates the actual update to `dispatch_edit()`.
+/// Returns `Err` if the index is invalid or parsing fails
+pub fn apply_edit(cfg: &mut Config, index: usize, new_value: &str) -> Result<(), String> {
+    let entries = flatten_config(cfg);
+    let entry = entries
+        .get(index)
+        .ok_or_else(|| "index out of range".to_string())?;
+    dispatch_edit(cfg, entry, new_value)
 }
 
 #[cfg(test)]
@@ -886,13 +899,42 @@ port = 3030
 
     #[test]
     fn apply_edit_unknown_field_hits_fallback_branch() {
-        use super::apply_edit;
-
         let mut cfg = make_config();
 
-        // Out of bounds → triggers error path
-        let result = apply_edit(&mut cfg, usize::MAX, "value");
-
+        // Construct a fake entry with a key that exists in no match arm.
+        // In normal use flatten_config never produces unknown keys —
+        // this branch is a defensive guard against future bugs (e.g. a
+        // new field added to flatten_config but forgotten in dispatch_edit).
+        let fake_entry = P2PoolConfigEntry {
+            section: ConfigSection::Api,
+            key: "nonexistent_key_xyz".to_string(),
+            value: String::new(),
+            enabled: true,
+            schema: P2PoolFieldSchema {
+                description: "fake".to_string(),
+                kind: FieldKind::Required,
+                type_hint: "String".to_string(),
+                sensitive: false,
+            },
+        };
+        let result = dispatch_edit(&mut cfg, &fake_entry, "value");
         assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("unknown field"),
+            "error message must mention unknown field"
+        );
+    }
+
+    #[test]
+    fn apply_edit_out_of_bounds_index_returns_error() {
+        let mut cfg = make_config();
+        // usize::MAX is always out of range — hits the bounds check
+        // before any section/key dispatch occurs.
+        let result = apply_edit(&mut cfg, usize::MAX, "value");
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("index out of range"),
+            "error message must mention index out of range"
+        );
     }
 }

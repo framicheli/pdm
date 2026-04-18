@@ -745,22 +745,40 @@ port = 46884
     #[test]
     fn commit_p2pool_edit_bad_value_sets_warning() {
         use tempfile::tempdir;
+
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        // Needs a real sample config — adjust path to your sample
-        if let Ok(cfg) = P2PoolConfig::load("../config.sample.toml") {
-            let mut app = App::new();
-            app.p2pool_config = Some(cfg);
-            // Find port index
-            let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
-            let port_idx = entries.iter().position(|e| e.key == "port").unwrap();
-            handle_action(
-                AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
-                &mut app,
-            )
-            .unwrap();
-            assert!(app.p2pool_config_view.warning_message.is_some());
-        }
+        write_valid_p2pool_toml(&path);
+        let cfg =
+            P2PoolConfig::load(path.to_str().unwrap()).expect("inline test config must parse");
+
+        let mut app = App::new();
+        app.p2pool_config = Some(cfg);
+
+        // Find the stratum port index in the flattened entries
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let port_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "port")
+            .expect("stratum.port entry must exist");
+
+        handle_action(
+            AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
+            &mut app,
+        )
+        .unwrap();
+
+        // A bad value must surface as a warning, never silently accepted
+        assert!(
+            app.p2pool_config_view.warning_message.is_some(),
+            "expected warning_message to be set for invalid port value"
+        );
+        // The original port must be unchanged
+        assert_eq!(
+            app.p2pool_config.as_ref().unwrap().stratum.port,
+            3333,
+            "port must not be mutated on failed edit"
+        );
     }
 
     #[test]
@@ -993,22 +1011,33 @@ port = 46884
         let path = dir.path().join("config.toml");
         write_valid_p2pool_toml(&path);
 
-        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-            let mut app = App::new();
-            app.p2pool_config = Some(cfg);
-            app.p2pool_config_view.warning_message = Some("old warning".to_string());
+        let cfg =
+            P2PoolConfig::load(path.to_str().unwrap()).expect("inline test config must parse");
+        let mut app = App::new();
+        app.p2pool_config = Some(cfg);
+        app.p2pool_config_view.warning_message = Some("old warning".to_string());
 
-            let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
-            let hostname_idx = entries.iter().position(|e| e.key == "hostname").unwrap();
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let hostname_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "hostname")
+            .expect("stratum.hostname must exist");
 
-            handle_action(
-                AppAction::CommitP2PoolEdit(hostname_idx, "new.example.com".to_string()),
-                &mut app,
-            )
-            .unwrap();
+        handle_action(
+            AppAction::CommitP2PoolEdit(hostname_idx, "new.example.com".to_string()),
+            &mut app,
+        )
+        .unwrap();
 
-            assert!(app.p2pool_config_view.warning_message.is_none());
-        }
+        assert!(
+            app.p2pool_config_view.warning_message.is_none(),
+            "warning must be cleared after a successful edit"
+        );
+        assert_eq!(
+            app.p2pool_config.as_ref().unwrap().stratum.hostname,
+            "new.example.com",
+            "hostname must be updated on successful edit"
+        );
     }
 
     #[test]
@@ -1019,21 +1048,32 @@ port = 46884
         let path = dir.path().join("config.toml");
         write_valid_p2pool_toml(&path);
 
-        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-            let mut app = App::new();
-            app.p2pool_config = Some(cfg);
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        app.p2pool_config = Some(cfg);
 
-            let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
-            let port_idx = entries.iter().position(|e| e.key == "port").unwrap();
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let port_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "port")
+            .expect("stratum.port entry must exist");
 
-            handle_action(
-                AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
-                &mut app,
-            )
-            .unwrap();
+        handle_action(
+            AppAction::CommitP2PoolEdit(port_idx, "notanumber".to_string()),
+            &mut app,
+        )
+        .unwrap();
 
-            assert!(app.p2pool_config_view.warning_message.is_some());
-        }
+        assert!(
+            app.p2pool_config_view.warning_message.is_some(),
+            "warning must be set for invalid port value"
+        );
+        assert_eq!(
+            app.p2pool_config.as_ref().unwrap().stratum.port,
+            3333,
+            "port must not be mutated on failed edit"
+        );
     }
 
     #[test]
@@ -1053,20 +1093,20 @@ port = 46884
         let path = dir.path().join("config.toml");
         write_valid_p2pool_toml(&path);
 
-        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-            let mut app = App::new();
-            app.p2pool_conf_path = Some(path.clone());
-            app.p2pool_config = Some(cfg);
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        app.p2pool_conf_path = Some(path.clone());
+        app.p2pool_config = Some(cfg);
 
-            handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
 
-            assert!(path.exists());
-            assert_eq!(
-                app.p2pool_config_view.save_message.as_deref(),
-                Some("Configuration correctly saved")
-            );
-            assert!(app.p2pool_config_view.warning_message.is_none());
-        }
+        assert!(path.exists());
+        assert_eq!(
+            app.p2pool_config_view.save_message.as_deref(),
+            Some("Configuration correctly saved")
+        );
+        assert!(app.p2pool_config_view.warning_message.is_none());
     }
 
     #[test]
@@ -1077,16 +1117,16 @@ port = 46884
         let path = dir.path().join("config.toml");
         write_valid_p2pool_toml(&path);
 
-        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-            let mut app = App::new();
-            // path intentionally not set
-            app.p2pool_config = Some(cfg);
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        // path intentionally not set
+        app.p2pool_config = Some(cfg);
 
-            handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
 
-            assert!(app.p2pool_config_view.save_message.is_none());
-            assert!(app.p2pool_config_view.warning_message.is_none());
-        }
+        assert!(app.p2pool_config_view.save_message.is_none());
+        assert!(app.p2pool_config_view.warning_message.is_none());
     }
 
     #[test]
@@ -1097,18 +1137,18 @@ port = 46884
         let path = dir.path().join("config.toml");
         write_valid_p2pool_toml(&path);
 
-        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-            let mut app = App::new();
-            // Point at a directory that doesn't exist so writing fails
-            app.p2pool_conf_path = Some(std::path::PathBuf::from("/nonexistent/config.toml"));
-            app.p2pool_config = Some(cfg);
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
+        let mut app = App::new();
+        // Point at a directory path so writing as a file fails consistently across OSes
+        app.p2pool_conf_path = Some(dir.path().to_path_buf());
+        app.p2pool_config = Some(cfg);
 
-            handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
 
-            assert!(app.p2pool_config_view.warning_message.is_some());
-            let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
-            assert!(msg.contains("Save failed"));
-        }
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        let msg = app.p2pool_config_view.warning_message.as_deref().unwrap();
+        assert!(msg.contains("Save failed"));
     }
 
     #[test]
@@ -1117,24 +1157,97 @@ port = 46884
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        // Write a file with a comment that must survive the round-trip
+
+        // Write a full valid config with a comment that must survive the round-trip
         std::fs::write(
             &path,
-            "# keep this comment\n[stratum]\nhostname = \"old.example.com\"\nport = 3333\n\
-             [consensus]\nnetwork = \"mainnet\"\n",
+            r#"
+# keep this comment
+[stratum]
+hostname = "old.example.com"
+port = 3333
+start_difficulty = 1000
+minimum_difficulty = 100
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "rpcuser"
+password = "rpcpassword"
+
+[network]
+listen_address = "0.0.0.0:8333"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 1
+dial_timeout_secs = 30
+
+[store]
+path = "./data/store"
+background_task_frequency_hours = 1
+pplns_ttl_days = 7
+
+[logging]
+level = "info"
+stats_dir = "./logs/stats"
+console = true
+
+[api]
+hostname = "127.0.0.1"
+port = 3030
+    "#,
         )
         .unwrap();
 
-        if let Ok(mut cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-            cfg.stratum.hostname = "new.example.com".to_string();
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
 
-            save_p2pool_config(&path, &cfg).unwrap();
+        let mut app = App::new();
+        app.p2pool_conf_path = Some(path.clone());
+        app.p2pool_config = Some(cfg);
 
-            let written = std::fs::read_to_string(&path).unwrap();
-            assert!(written.contains("# keep this comment"));
-            assert!(written.contains("new.example.com"));
-            assert!(!written.contains("old.example.com"));
-        }
+        // Actually mutate the hostname before saving
+        let entries = flatten_config(app.p2pool_config.as_ref().unwrap());
+        let hostname_idx = entries
+            .iter()
+            .position(|e| e.section.to_string() == "stratum" && e.key == "hostname")
+            .expect("stratum.hostname must exist");
+
+        handle_action(
+            AppAction::CommitP2PoolEdit(hostname_idx, "new.example.com".to_string()),
+            &mut app,
+        )
+        .unwrap();
+
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            written.contains("# keep this comment"),
+            "comment must be preserved after save"
+        );
+        assert!(
+            written.contains("new.example.com"),
+            "updated hostname must appear in saved file"
+        );
+        assert!(
+            !written.contains("old.example.com"),
+            "old hostname must not appear in saved file"
+        );
     }
 
     #[test]
@@ -1143,22 +1256,93 @@ port = 46884
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        // File deliberately omits an optional field
+
+        // Write only required fields — optional fields like pool_signature,
+        // solo_address, donation_address are deliberately absent.
+        // After saving, they must still be absent.
         std::fs::write(
             &path,
-            "[stratum]\nhostname = \"pool.example.com\"\nport = 3333\n\
-             [consensus]\nnetwork = \"mainnet\"\n",
+            r#"
+[stratum]
+hostname = "127.0.0.1"
+port = 3333
+start_difficulty = 1000
+minimum_difficulty = 100
+zmqpubhashblock = "tcp://127.0.0.1:28332"
+bootstrap_address = "tb1qyazxde6558qj6z3d9np5e6msmrspwpf6k0qggk"
+network = "signet"
+version_mask = "1fffe000"
+difficulty_multiplier = 1.0
+
+[bitcoinrpc]
+url = "http://127.0.0.1:38332"
+username = "rpcuser"
+password = "rpcpassword"
+
+[network]
+listen_address = "0.0.0.0:8333"
+dial_peers = []
+max_pending_incoming = 10
+max_pending_outgoing = 10
+max_established_incoming = 50
+max_established_outgoing = 50
+max_established_per_peer = 1
+max_workbase_per_second = 10
+max_userworkbase_per_second = 10
+max_miningshare_per_second = 100
+max_inventory_per_second = 100
+max_transaction_per_second = 100
+rate_limit_window_secs = 1
+max_requests_per_second = 1
+dial_timeout_secs = 30
+
+[store]
+path = "./data/store"
+background_task_frequency_hours = 1
+pplns_ttl_days = 7
+
+[logging]
+level = "info"
+stats_dir = "./logs/stats"
+console = true
+
+[api]
+hostname = "127.0.0.1"
+port = 3030
+    "#,
         )
         .unwrap();
 
         let original = std::fs::read_to_string(&path).unwrap();
+        let original_line_count = original.lines().count();
 
-        if let Ok(cfg) = P2PoolConfig::load(path.to_str().unwrap()) {
-            save_p2pool_config(&path, &cfg).unwrap();
+        let cfg = P2PoolConfig::load(path.to_str().unwrap())
+            .expect("valid P2Pool fixture TOML should parse");
 
-            let written = std::fs::read_to_string(&path).unwrap();
-            // No new keys should have been injected
-            assert_eq!(written.lines().count(), original.lines().count());
-        }
+        let mut app = App::new();
+        app.p2pool_conf_path = Some(path.clone());
+        app.p2pool_config = Some(cfg);
+
+        handle_action(AppAction::SaveP2PoolConfig, &mut app).unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+
+        assert_eq!(
+            written.lines().count(),
+            original_line_count,
+            "save must not inject new lines for unset optional fields"
+        );
+        assert!(
+            !written.contains("pool_signature"),
+            "unset pool_signature must not be injected"
+        );
+        assert!(
+            !written.contains("solo_address"),
+            "unset solo_address must not be injected"
+        );
+        assert!(
+            !written.contains("donation_address"),
+            "unset donation_address must not be injected"
+        );
     }
 }
