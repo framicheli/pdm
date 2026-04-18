@@ -315,6 +315,35 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
     Ok(false)
 }
 
+/// Matches the TOML type of an existing item and parses the new string
+/// value into that same type. This prevents numeric/bool fields from
+/// being written back as quoted strings (e.g. port = "3333").
+fn typed_toml_item_like(existing: &toml_edit::Item, new_value: &str) -> Result<toml_edit::Item> {
+    if existing.as_integer().is_some() {
+        let parsed = new_value
+            .parse::<i64>()
+            .map_err(|e| anyhow::anyhow!("Expected integer, got '{}': {}", new_value, e))?;
+        Ok(toml_edit::value(parsed))
+    } else if existing.as_float().is_some() {
+        let parsed = new_value
+            .parse::<f64>()
+            .map_err(|e| anyhow::anyhow!("Expected float, got '{}': {}", new_value, e))?;
+        Ok(toml_edit::value(parsed))
+    } else if existing.as_bool().is_some() {
+        let parsed = new_value.parse::<bool>().map_err(|e| {
+            anyhow::anyhow!("Expected bool (true/false), got '{}': {}", new_value, e)
+        })?;
+        Ok(toml_edit::value(parsed))
+    } else if existing.as_str().is_some() {
+        Ok(toml_edit::value(new_value.to_owned()))
+    } else {
+        Err(anyhow::anyhow!(
+            "Unsupported TOML value type for key: {}",
+            existing
+        ))
+    }
+}
+
 /// Serialize the live `P2PoolConfig` back to TOML and write it to disk.
 /// Saves P2Pool config by patching the original TOML file in-place.
 /// Uses toml_edit so comments and formatting are preserved.
@@ -343,8 +372,15 @@ fn save_p2pool_config(path: &std::path::Path, cfg: &P2PoolConfig) -> Result<()> 
         if let Some(table) = doc.get_mut(&section).and_then(|v| v.as_table_mut()) {
             // Only update keys that already exist in the file to avoid
             // injecting fields the user intentionally omitted
-            if table.contains_key(key) {
-                table[key] = toml_edit::value(entry.value.clone());
+            if let Some(existing) = table.get(key) {
+                match typed_toml_item_like(existing, &entry.value) {
+                    Ok(updated) => table[key] = updated,
+                    Err(e) => {
+                        // Soft error — skip this field and continue
+                        // saving the rest rather than aborting entirely
+                        eprintln!("Warning: skipping {}.{}: {}", section, key, e);
+                    }
+                }
             }
         }
     }
