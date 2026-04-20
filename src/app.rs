@@ -25,10 +25,63 @@ pub const SIDEBAR_ITEMS: &[(&str, CurrentScreen)] = &[
 
 pub const MAX_SIDEBAR_INDEX: usize = SIDEBAR_ITEMS.len() - 1;
 
-/// Tab labels for the Bitcoin Status view
-pub const BITCOIN_STATUS_TABS: &[&str] = &["Chain Info", "System", "Logs", "Peers"];
+/// The active tab in the Bitcoin Status view.
+/// Adding a variant here automatically causes the `match` in
+/// `bitcoin_status_view.rs` to fail to compile until a new arm is added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BitcoinStatusTab {
+    #[default]
+    ChainInfo,
+    System,
+    Logs,
+    Peers,
+}
 
-pub const MAX_BITCOIN_STATUS_TAB: usize = BITCOIN_STATUS_TABS.len() - 1;
+impl BitcoinStatusTab {
+    /// All tabs in display order — used to build the `Tabs` widget labels.
+    pub const ALL: [Self; 4] = [Self::ChainInfo, Self::System, Self::Logs, Self::Peers];
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ChainInfo => "Chain Info",
+            Self::System => "System",
+            Self::Logs => "Logs",
+            Self::Peers => "Peers",
+        }
+    }
+
+    /// Index into `ALL`, used by the ratatui `Tabs` widget's `.select()` call.
+    #[must_use]
+    pub fn as_index(self) -> usize {
+        match self {
+            Self::ChainInfo => 0,
+            Self::System => 1,
+            Self::Logs => 2,
+            Self::Peers => 3,
+        }
+    }
+
+    /// Move one tab left, clamped at the first tab.
+    #[must_use]
+    pub fn prev(self) -> Self {
+        match self {
+            Self::ChainInfo | Self::System => Self::ChainInfo,
+            Self::Logs => Self::System,
+            Self::Peers => Self::Logs,
+        }
+    }
+
+    /// Move one tab right, clamped at the last tab.
+    #[must_use]
+    pub fn next(self) -> Self {
+        match self {
+            Self::ChainInfo => Self::System,
+            Self::System => Self::Logs,
+            Self::Logs | Self::Peers => Self::Peers,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CurrentScreen {
@@ -88,7 +141,7 @@ pub struct App {
     pub settings_view: SettingsView,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
-    pub bitcoin_status_tab: usize,
+    pub bitcoin_status_tab: BitcoinStatusTab,
     pub settings: Settings,
     /// Cached value of the `HOME` environment variable, used for path display.
     /// Populated once at startup to avoid repeated syscalls during rendering.
@@ -112,7 +165,7 @@ impl App {
             settings_view: SettingsView::new(),
             p2pool_config: None,
             bitcoin_data: Vec::new(),
-            bitcoin_status_tab: 0,
+            bitcoin_status_tab: BitcoinStatusTab::default(),
             settings: Settings::default(),
             home_dir: std::env::var("HOME").unwrap_or_default(),
             config_dir: crate::settings::config_dir().unwrap_or_default(),

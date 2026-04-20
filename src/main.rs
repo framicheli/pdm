@@ -3,9 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use p2poolv2_config::Config as P2PoolConfig;
-use pdm::app::{
-    App, AppAction, CurrentScreen, ExplorerTrigger, MAX_BITCOIN_STATUS_TAB, MAX_SIDEBAR_INDEX,
-};
+use pdm::app::{App, AppAction, CurrentScreen, ExplorerTrigger, MAX_SIDEBAR_INDEX};
 use pdm::bitcoin_config::{
     parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
 };
@@ -92,15 +90,11 @@ where
 
                 CurrentScreen::BitcoinStatus => match key.code {
                     KeyCode::Left => {
-                        if app.bitcoin_status_tab > 0 {
-                            app.bitcoin_status_tab -= 1;
-                        }
+                        app.bitcoin_status_tab = app.bitcoin_status_tab.prev();
                         AppAction::None
                     }
                     KeyCode::Right => {
-                        if app.bitcoin_status_tab < MAX_BITCOIN_STATUS_TAB {
-                            app.bitcoin_status_tab += 1;
-                        }
+                        app.bitcoin_status_tab = app.bitcoin_status_tab.next();
                         AppAction::None
                     }
                     k => sidebar_nav(k, app),

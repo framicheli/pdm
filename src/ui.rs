@@ -111,7 +111,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::App;
+    use crate::app::{App, BitcoinStatusTab};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -153,7 +153,7 @@ mod tests {
         let mut app = App::new();
         app.sidebar_index = 2;
         app.toggle_menu();
-        app.bitcoin_status_tab = 1;
+        app.bitcoin_status_tab = BitcoinStatusTab::System;
         terminal.draw(|f| ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!(terminal.backend());
     }
@@ -164,7 +164,7 @@ mod tests {
         let mut app = App::new();
         app.sidebar_index = 2;
         app.toggle_menu();
-        app.bitcoin_status_tab = 2;
+        app.bitcoin_status_tab = BitcoinStatusTab::Logs;
         terminal.draw(|f| ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!(terminal.backend());
     }
@@ -175,7 +175,7 @@ mod tests {
         let mut app = App::new();
         app.sidebar_index = 2;
         app.toggle_menu();
-        app.bitcoin_status_tab = 3;
+        app.bitcoin_status_tab = BitcoinStatusTab::Peers;
         terminal.draw(|f| ui(f, &mut app)).unwrap();
         insta::assert_debug_snapshot!(terminal.backend());
     }

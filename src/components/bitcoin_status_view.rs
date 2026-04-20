@@ -2,18 +2,11 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::app::{App, BITCOIN_STATUS_TABS};
-
+use crate::app::{App, BitcoinStatusTab};
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph, Tabs, Wrap},
 };
-
-// Bitcoin Status tabs count
-const _: () = assert!(
-    BITCOIN_STATUS_TABS.len() == 4,
-    "update tab dispatch match in bitcoin_status_view.rs"
-);
 
 #[derive(Debug, Clone)]
 pub struct BitcoinStatusView;
@@ -33,48 +26,40 @@ impl BitcoinStatusView {
             ])
             .split(area);
 
-        let tabs = Tabs::new(BITCOIN_STATUS_TABS.to_vec())
+        let tab_labels = BitcoinStatusTab::ALL.map(BitcoinStatusTab::label).to_vec();
+        let tabs = Tabs::new(tab_labels)
             .block(Block::default().borders(Borders::ALL).title(" Info "))
-            .select(app.bitcoin_status_tab)
+            .select(app.bitcoin_status_tab.as_index())
             .highlight_style(Style::default().bg(Color::Gray).fg(Color::Black));
 
         f.render_widget(tabs, outer[0]);
 
         let content_area = outer[1];
         match app.bitcoin_status_tab {
-            // Chain Info
-            0 => {
-                let text = "Chain Info";
-                let p = Paragraph::new(text)
+            BitcoinStatusTab::ChainInfo => {
+                let p = Paragraph::new("Chain Info")
                     .block(Block::default().borders(Borders::ALL))
                     .wrap(Wrap { trim: true });
                 f.render_widget(p, content_area);
             }
-            // System
-            1 => {
-                let text = "System";
-                let p = Paragraph::new(text)
+            BitcoinStatusTab::System => {
+                let p = Paragraph::new("System")
                     .block(Block::default().borders(Borders::ALL))
                     .wrap(Wrap { trim: true });
                 f.render_widget(p, content_area);
             }
-            // Logs
-            2 => {
-                let text = "Logs";
-                let p = Paragraph::new(text)
+            BitcoinStatusTab::Logs => {
+                let p = Paragraph::new("Logs")
                     .block(Block::default().borders(Borders::ALL))
                     .wrap(Wrap { trim: true });
                 f.render_widget(p, content_area);
             }
-            // Peers
-            3 => {
-                let text = "Peers";
-                let p = Paragraph::new(text)
+            BitcoinStatusTab::Peers => {
+                let p = Paragraph::new("Peers")
                     .block(Block::default().borders(Borders::ALL))
                     .wrap(Wrap { trim: true });
                 f.render_widget(p, content_area);
             }
-            _ => {}
         }
     }
 }

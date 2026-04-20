@@ -9,7 +9,6 @@ use std::{
     path::Path,
 };
 
-#[allow(dead_code)]
 /// Core Config
 #[derive(Debug, Clone)]
 pub struct Core {
@@ -58,7 +57,6 @@ pub struct Core {
     pub assumevalid: Option<String>,
 }
 
-#[allow(dead_code)]
 /// Network Config
 #[derive(Debug, Clone)]
 pub struct Network {
@@ -132,7 +130,6 @@ pub struct Network {
     pub asmap: Option<String>,
 }
 
-#[allow(dead_code)]
 /// RPC Config
 #[derive(Debug, Clone)]
 pub struct RPC {
@@ -164,7 +161,6 @@ pub struct RPC {
     pub rest: Option<bool>,
 }
 
-#[allow(dead_code)]
 /// Wallet related config
 #[derive(Debug, Clone)]
 pub struct Wallet {
@@ -206,7 +202,6 @@ pub struct Wallet {
     pub walletnotify: Option<String>,
 }
 
-#[allow(dead_code)]
 /// Debugging related config
 #[derive(Debug, Clone)]
 pub struct Debugging {
@@ -229,7 +224,6 @@ pub struct Debugging {
     pub maxtxfee: Option<String>,
 }
 
-#[allow(dead_code)]
 /// Mining related config
 #[derive(Debug, Clone)]
 pub struct Mining {
@@ -238,7 +232,6 @@ pub struct Mining {
     pub blockmintxfee: Option<String>,
 }
 
-#[allow(dead_code)]
 /// Relay related config
 #[derive(Debug, Clone)]
 pub struct Relay {
@@ -257,7 +250,6 @@ pub struct Relay {
     pub whitelistrelay: Option<bool>,
 }
 
-#[allow(dead_code)]
 /// ZMQ related config
 #[derive(Debug, Clone)]
 pub struct ZMQ {
@@ -273,7 +265,7 @@ pub struct ZMQ {
     pub zmqpubsequence: Option<String>,
 }
 
-#[allow(dead_code)]
+/// Fully-typed view of `bitcoin.conf`.
 #[derive(Debug, Clone)]
 pub struct BitcoinConfig {
     pub core: Core,
@@ -284,6 +276,367 @@ pub struct BitcoinConfig {
     pub mining: Mining,
     pub relay: Relay,
     pub zmq: ZMQ,
+}
+
+fn parse_bool(s: &str) -> Option<bool> {
+    match s {
+        "1" | "true" => Some(true),
+        "0" | "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_opt_string(s: &str) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+impl BitcoinConfig {
+    /// Build a `BitcoinConfig` from a slice of parsed entries.
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn from_entries(entries: &[ConfigEntry]) -> Self {
+        let map: HashMap<&str, &str> = entries
+            .iter()
+            .filter(|e| e.enabled)
+            .map(|e| (e.key.as_str(), e.value.as_str()))
+            .collect();
+
+        let b = |key: &str| map.get(key).copied().and_then(parse_bool);
+        let u = |key: &str| map.get(key).copied().and_then(|v| v.parse::<u32>().ok());
+        let i = |key: &str| map.get(key).copied().and_then(|v| v.parse::<i32>().ok());
+        let s = |key: &str| map.get(key).copied().and_then(parse_opt_string);
+
+        Self {
+            core: Core {
+                datadir: s("datadir"),
+                blocksdir: s("blocksdir"),
+                pid: s("pid"),
+                debuglogfile: s("debuglogfile"),
+                settings: s("settings"),
+                includeconf: s("includeconf"),
+                loadblock: s("loadblock"),
+                txindex: b("txindex"),
+                blockfilterindex: s("blockfilterindex"),
+                coinstatsindex: b("coinstatsindex"),
+                prune: u("prune"),
+                dbcache: u("dbcache"),
+                maxmempool: u("maxmempool"),
+                maxorphantx: u("maxorphantx"),
+                mempoolexpiry: u("mempoolexpiry"),
+                par: i("par"),
+                blockreconstructionextratxn: u("blockreconstructionextratxn"),
+                blocksonly: b("blocksonly"),
+                persistmempool: b("persistmempool"),
+                reindex: b("reindex"),
+                reindex_chainstate: b("reindex-chainstate"),
+                sysperms: b("sysperms"),
+                daemon: b("daemon"),
+                daemonwait: b("daemonwait"),
+                alertnotify: s("alertnotify"),
+                blocknotify: s("blocknotify"),
+                startupnotify: s("startupnotify"),
+                assumevalid: s("assumevalid"),
+            },
+            network: Network {
+                chain: s("chain"),
+                testnet: b("testnet"),
+                regtest: b("regtest"),
+                signet: b("signet"),
+                signetchallenge: s("signetchallenge"),
+                signetseednode: s("signetseednode"),
+                listen: b("listen"),
+                bind: s("bind"),
+                whitebind: s("whitebind"),
+                port: u("port"),
+                maxconnections: u("maxconnections"),
+                maxreceivebuffer: u("maxreceivebuffer"),
+                maxsendbuffer: u("maxsendbuffer"),
+                maxuploadtarget: u("maxuploadtarget"),
+                timeout: u("timeout"),
+                maxtimeadjustment: u("maxtimeadjustment"),
+                bantime: u("bantime"),
+                discover: b("discover"),
+                dns: b("dns"),
+                dnsseed: b("dnsseed"),
+                fixedseeds: b("fixedseeds"),
+                forcednsseed: b("forcednsseed"),
+                seednode: s("seednode"),
+                addnode: s("addnode"),
+                connect: s("connect"),
+                onlynet: s("onlynet"),
+                networkactive: b("networkactive"),
+                proxy: s("proxy"),
+                proxyrandomize: b("proxyrandomize"),
+                onion: s("onion"),
+                listenonion: b("listenonion"),
+                torcontrol: s("torcontrol"),
+                torpassword: s("torpassword"),
+                i2psam: s("i2psam"),
+                i2pacceptincoming: b("i2pacceptincoming"),
+                cjdnsreachable: b("cjdnsreachable"),
+                whitelist: s("whitelist"),
+                peerblockfilters: b("peerblockfilters"),
+                peerbloomfilters: b("peerbloomfilters"),
+                permitbaremultisig: b("permitbaremultisig"),
+                externalip: s("externalip"),
+                upnp: b("upnp"),
+                asmap: s("asmap"),
+            },
+            rpc: RPC {
+                server: b("server"),
+                rpcuser: s("rpcuser"),
+                rpcpassword: s("rpcpassword"),
+                rpcauth: s("rpcauth"),
+                rpccookiefile: s("rpccookiefile"),
+                rpcport: u("rpcport"),
+                rpcbind: s("rpcbind"),
+                rpcallowip: s("rpcallowip"),
+                rpcthreads: u("rpcthreads"),
+                rpcserialversion: u("rpcserialversion"),
+                rpcwhitelist: s("rpcwhitelist"),
+                rpcwhitelistdefault: b("rpcwhitelistdefault"),
+                rest: b("rest"),
+            },
+            wallet: Wallet {
+                disablewallet: b("disablewallet"),
+                wallet: s("wallet"),
+                walletdir: s("walletdir"),
+                addresstype: s("addresstype"),
+                changetype: s("changetype"),
+                fallbackfee: s("fallbackfee"),
+                discardfee: s("discardfee"),
+                mintxfee: s("mintxfee"),
+                paytxfee: s("paytxfee"),
+                consolidatefeerate: s("consolidatefeerate"),
+                maxapsfee: s("maxapsfee"),
+                txconfirmtarget: u("txconfirmtarget"),
+                spendzeroconfchange: b("spendzeroconfchange"),
+                walletrbf: b("walletrbf"),
+                avoidpartialspends: b("avoidpartialspends"),
+                keypool: u("keypool"),
+                signer: s("signer"),
+                walletbroadcast: b("walletbroadcast"),
+                walletnotify: s("walletnotify"),
+            },
+            debugging: Debugging {
+                debug: s("debug"),
+                debugexclude: s("debugexclude"),
+                logips: b("logips"),
+                logsourcelocations: b("logsourcelocations"),
+                logthreadnames: b("logthreadnames"),
+                logtimestamps: b("logtimestamps"),
+                shrinkdebugfile: b("shrinkdebugfile"),
+                printtoconsole: b("printtoconsole"),
+                uacomment: s("uacomment"),
+                maxtxfee: s("maxtxfee"),
+            },
+            mining: Mining {
+                blockmaxweight: u("blockmaxweight"),
+                blockmintxfee: s("blockmintxfee"),
+            },
+            relay: Relay {
+                minrelaytxfee: s("minrelaytxfee"),
+                datacarrier: b("datacarrier"),
+                datacarriersize: u("datacarriersize"),
+                bytespersigop: u("bytespersigop"),
+                whitelistforcerelay: b("whitelistforcerelay"),
+                whitelistrelay: b("whitelistrelay"),
+            },
+            zmq: ZMQ {
+                zmqpubhashblock: s("zmqpubhashblock"),
+                zmqpubhashtx: s("zmqpubhashtx"),
+                zmqpubrawblock: s("zmqpubrawblock"),
+                zmqpubrawtx: s("zmqpubrawtx"),
+                zmqpubsequence: s("zmqpubsequence"),
+            },
+        }
+    }
+
+    /// Serialize this typed config back to a flat list of [`ConfigEntry`] values.
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn to_entries(&self) -> Vec<ConfigEntry> {
+        let schema_map: HashMap<String, ConfigSchema> = get_default_schema()
+            .into_iter()
+            .map(|s| (s.key.clone(), s))
+            .collect();
+
+        let entry = |key: &str, value: Option<String>| {
+            let schema = schema_map.get(key).cloned();
+            let default = schema
+                .as_ref()
+                .map(|s| s.default.clone())
+                .unwrap_or_default();
+            let enabled = value.is_some();
+            ConfigEntry {
+                key: key.to_string(),
+                value: value.unwrap_or(default),
+                schema,
+                enabled,
+                section: None,
+            }
+        };
+
+        let bool_s = |v: Option<bool>| v.map(|b| if b { "1".to_string() } else { "0".to_string() });
+        let u32_s = |v: Option<u32>| v.map(|n| n.to_string());
+        let i32_s = |v: Option<i32>| v.map(|n| n.to_string());
+
+        vec![
+            // Core
+            entry("datadir", self.core.datadir.clone()),
+            entry("blocksdir", self.core.blocksdir.clone()),
+            entry("pid", self.core.pid.clone()),
+            entry("debuglogfile", self.core.debuglogfile.clone()),
+            entry("settings", self.core.settings.clone()),
+            entry("includeconf", self.core.includeconf.clone()),
+            entry("loadblock", self.core.loadblock.clone()),
+            entry("txindex", bool_s(self.core.txindex)),
+            entry("blockfilterindex", self.core.blockfilterindex.clone()),
+            entry("coinstatsindex", bool_s(self.core.coinstatsindex)),
+            entry("prune", u32_s(self.core.prune)),
+            entry("dbcache", u32_s(self.core.dbcache)),
+            entry("maxmempool", u32_s(self.core.maxmempool)),
+            entry("maxorphantx", u32_s(self.core.maxorphantx)),
+            entry("mempoolexpiry", u32_s(self.core.mempoolexpiry)),
+            entry("par", i32_s(self.core.par)),
+            entry(
+                "blockreconstructionextratxn",
+                u32_s(self.core.blockreconstructionextratxn),
+            ),
+            entry("blocksonly", bool_s(self.core.blocksonly)),
+            entry("persistmempool", bool_s(self.core.persistmempool)),
+            entry("reindex", bool_s(self.core.reindex)),
+            entry("reindex-chainstate", bool_s(self.core.reindex_chainstate)),
+            entry("sysperms", bool_s(self.core.sysperms)),
+            entry("daemon", bool_s(self.core.daemon)),
+            entry("daemonwait", bool_s(self.core.daemonwait)),
+            entry("alertnotify", self.core.alertnotify.clone()),
+            entry("blocknotify", self.core.blocknotify.clone()),
+            entry("startupnotify", self.core.startupnotify.clone()),
+            entry("assumevalid", self.core.assumevalid.clone()),
+            // Network
+            entry("chain", self.network.chain.clone()),
+            entry("testnet", bool_s(self.network.testnet)),
+            entry("regtest", bool_s(self.network.regtest)),
+            entry("signet", bool_s(self.network.signet)),
+            entry("signetchallenge", self.network.signetchallenge.clone()),
+            entry("signetseednode", self.network.signetseednode.clone()),
+            entry("listen", bool_s(self.network.listen)),
+            entry("bind", self.network.bind.clone()),
+            entry("whitebind", self.network.whitebind.clone()),
+            entry("port", u32_s(self.network.port)),
+            entry("maxconnections", u32_s(self.network.maxconnections)),
+            entry("maxreceivebuffer", u32_s(self.network.maxreceivebuffer)),
+            entry("maxsendbuffer", u32_s(self.network.maxsendbuffer)),
+            entry("maxuploadtarget", u32_s(self.network.maxuploadtarget)),
+            entry("timeout", u32_s(self.network.timeout)),
+            entry("maxtimeadjustment", u32_s(self.network.maxtimeadjustment)),
+            entry("bantime", u32_s(self.network.bantime)),
+            entry("discover", bool_s(self.network.discover)),
+            entry("dns", bool_s(self.network.dns)),
+            entry("dnsseed", bool_s(self.network.dnsseed)),
+            entry("fixedseeds", bool_s(self.network.fixedseeds)),
+            entry("forcednsseed", bool_s(self.network.forcednsseed)),
+            entry("seednode", self.network.seednode.clone()),
+            entry("addnode", self.network.addnode.clone()),
+            entry("connect", self.network.connect.clone()),
+            entry("onlynet", self.network.onlynet.clone()),
+            entry("networkactive", bool_s(self.network.networkactive)),
+            entry("proxy", self.network.proxy.clone()),
+            entry("proxyrandomize", bool_s(self.network.proxyrandomize)),
+            entry("onion", self.network.onion.clone()),
+            entry("listenonion", bool_s(self.network.listenonion)),
+            entry("torcontrol", self.network.torcontrol.clone()),
+            entry("torpassword", self.network.torpassword.clone()),
+            entry("i2psam", self.network.i2psam.clone()),
+            entry("i2pacceptincoming", bool_s(self.network.i2pacceptincoming)),
+            entry("cjdnsreachable", bool_s(self.network.cjdnsreachable)),
+            entry("whitelist", self.network.whitelist.clone()),
+            entry("peerblockfilters", bool_s(self.network.peerblockfilters)),
+            entry("peerbloomfilters", bool_s(self.network.peerbloomfilters)),
+            entry(
+                "permitbaremultisig",
+                bool_s(self.network.permitbaremultisig),
+            ),
+            entry("externalip", self.network.externalip.clone()),
+            entry("upnp", bool_s(self.network.upnp)),
+            entry("asmap", self.network.asmap.clone()),
+            // RPC
+            entry("server", bool_s(self.rpc.server)),
+            entry("rpcuser", self.rpc.rpcuser.clone()),
+            entry("rpcpassword", self.rpc.rpcpassword.clone()),
+            entry("rpcauth", self.rpc.rpcauth.clone()),
+            entry("rpccookiefile", self.rpc.rpccookiefile.clone()),
+            entry("rpcport", u32_s(self.rpc.rpcport)),
+            entry("rpcbind", self.rpc.rpcbind.clone()),
+            entry("rpcallowip", self.rpc.rpcallowip.clone()),
+            entry("rpcthreads", u32_s(self.rpc.rpcthreads)),
+            entry("rpcserialversion", u32_s(self.rpc.rpcserialversion)),
+            entry("rpcwhitelist", self.rpc.rpcwhitelist.clone()),
+            entry("rpcwhitelistdefault", bool_s(self.rpc.rpcwhitelistdefault)),
+            entry("rest", bool_s(self.rpc.rest)),
+            // Wallet
+            entry("disablewallet", bool_s(self.wallet.disablewallet)),
+            entry("wallet", self.wallet.wallet.clone()),
+            entry("walletdir", self.wallet.walletdir.clone()),
+            entry("addresstype", self.wallet.addresstype.clone()),
+            entry("changetype", self.wallet.changetype.clone()),
+            entry("fallbackfee", self.wallet.fallbackfee.clone()),
+            entry("discardfee", self.wallet.discardfee.clone()),
+            entry("mintxfee", self.wallet.mintxfee.clone()),
+            entry("paytxfee", self.wallet.paytxfee.clone()),
+            entry("consolidatefeerate", self.wallet.consolidatefeerate.clone()),
+            entry("maxapsfee", self.wallet.maxapsfee.clone()),
+            entry("txconfirmtarget", u32_s(self.wallet.txconfirmtarget)),
+            entry(
+                "spendzeroconfchange",
+                bool_s(self.wallet.spendzeroconfchange),
+            ),
+            entry("walletrbf", bool_s(self.wallet.walletrbf)),
+            entry("avoidpartialspends", bool_s(self.wallet.avoidpartialspends)),
+            entry("keypool", u32_s(self.wallet.keypool)),
+            entry("signer", self.wallet.signer.clone()),
+            entry("walletbroadcast", bool_s(self.wallet.walletbroadcast)),
+            entry("walletnotify", self.wallet.walletnotify.clone()),
+            // Debugging
+            entry("debug", self.debugging.debug.clone()),
+            entry("debugexclude", self.debugging.debugexclude.clone()),
+            entry("logips", bool_s(self.debugging.logips)),
+            entry(
+                "logsourcelocations",
+                bool_s(self.debugging.logsourcelocations),
+            ),
+            entry("logthreadnames", bool_s(self.debugging.logthreadnames)),
+            entry("logtimestamps", bool_s(self.debugging.logtimestamps)),
+            entry("shrinkdebugfile", bool_s(self.debugging.shrinkdebugfile)),
+            entry("printtoconsole", bool_s(self.debugging.printtoconsole)),
+            entry("uacomment", self.debugging.uacomment.clone()),
+            entry("maxtxfee", self.debugging.maxtxfee.clone()),
+            // Mining
+            entry("blockmaxweight", u32_s(self.mining.blockmaxweight)),
+            entry("blockmintxfee", self.mining.blockmintxfee.clone()),
+            // Relay
+            entry("minrelaytxfee", self.relay.minrelaytxfee.clone()),
+            entry("datacarrier", bool_s(self.relay.datacarrier)),
+            entry("datacarriersize", u32_s(self.relay.datacarriersize)),
+            entry("bytespersigop", u32_s(self.relay.bytespersigop)),
+            entry(
+                "whitelistforcerelay",
+                bool_s(self.relay.whitelistforcerelay),
+            ),
+            entry("whitelistrelay", bool_s(self.relay.whitelistrelay)),
+            // ZMQ
+            entry("zmqpubhashblock", self.zmq.zmqpubhashblock.clone()),
+            entry("zmqpubhashtx", self.zmq.zmqpubhashtx.clone()),
+            entry("zmqpubrawblock", self.zmq.zmqpubrawblock.clone()),
+            entry("zmqpubrawtx", self.zmq.zmqpubrawtx.clone()),
+            entry("zmqpubsequence", self.zmq.zmqpubsequence.clone()),
+        ]
+    }
 }
 
 /// Type of a configuration option value
@@ -1993,5 +2346,225 @@ zmqpubhashtx=tcp://127.0.0.1:28333
             "top-level entries should come before section headers"
         );
         assert!(content.contains("rpcport=18332"));
+    }
+
+    // Tests for parse_bool()
+
+    #[test]
+    fn parse_bool_true_values() {
+        assert_eq!(parse_bool("1"), Some(true));
+        assert_eq!(parse_bool("true"), Some(true));
+    }
+
+    #[test]
+    fn parse_bool_false_values() {
+        assert_eq!(parse_bool("0"), Some(false));
+        assert_eq!(parse_bool("false"), Some(false));
+    }
+
+    #[test]
+    fn parse_bool_invalid_returns_none() {
+        assert_eq!(parse_bool(""), None);
+        assert_eq!(parse_bool("yes"), None);
+        assert_eq!(parse_bool("no"), None);
+        assert_eq!(parse_bool("2"), None);
+        assert_eq!(parse_bool("TRUE"), None);
+    }
+
+    // Tests for parse_opt_string()
+
+    #[test]
+    fn parse_opt_string_non_empty() {
+        assert_eq!(parse_opt_string("hello"), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn parse_opt_string_empty_returns_none() {
+        assert_eq!(parse_opt_string(""), None);
+    }
+
+    // Tests for BitcoinConfig::from_entries()
+
+    fn make_entry(key: &str, value: &str, enabled: bool) -> ConfigEntry {
+        ConfigEntry {
+            key: key.to_string(),
+            value: value.to_string(),
+            schema: None,
+            enabled,
+            section: None,
+        }
+    }
+
+    #[test]
+    fn from_entries_empty_entries_all_none() {
+        let cfg = BitcoinConfig::from_entries(&[]);
+        assert!(cfg.core.txindex.is_none());
+        assert!(cfg.core.dbcache.is_none());
+        assert!(cfg.core.par.is_none());
+        assert!(cfg.rpc.rpcuser.is_none());
+        assert!(cfg.network.port.is_none());
+        assert!(cfg.wallet.fallbackfee.is_none());
+        assert!(cfg.zmq.zmqpubhashblock.is_none());
+    }
+
+    #[test]
+    fn from_entries_disabled_entries_ignored() {
+        let entries = vec![
+            make_entry("txindex", "1", false),
+            make_entry("dbcache", "1000", false),
+            make_entry("rpcuser", "alice", false),
+        ];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert!(cfg.core.txindex.is_none());
+        assert!(cfg.core.dbcache.is_none());
+        assert!(cfg.rpc.rpcuser.is_none());
+    }
+
+    #[test]
+    fn from_entries_bool_field() {
+        let entries = vec![
+            make_entry("txindex", "1", true),
+            make_entry("server", "0", true),
+        ];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert_eq!(cfg.core.txindex, Some(true));
+        assert_eq!(cfg.rpc.server, Some(false));
+    }
+
+    #[test]
+    fn from_entries_u32_field() {
+        let entries = vec![make_entry("dbcache", "2000", true)];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert_eq!(cfg.core.dbcache, Some(2000u32));
+    }
+
+    #[test]
+    fn from_entries_i32_field_par() {
+        let entries = vec![make_entry("par", "-1", true)];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert_eq!(cfg.core.par, Some(-1i32));
+    }
+
+    #[test]
+    fn from_entries_string_field() {
+        let entries = vec![make_entry("rpcuser", "alice", true)];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert_eq!(cfg.rpc.rpcuser.as_deref(), Some("alice"));
+    }
+
+    #[test]
+    fn from_entries_float_stored_as_string() {
+        let entries = vec![make_entry("fallbackfee", "0.0002", true)];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert_eq!(cfg.wallet.fallbackfee.as_deref(), Some("0.0002"));
+    }
+
+    #[test]
+    fn from_entries_reindex_chainstate_hyphen_key() {
+        let entries = vec![make_entry("reindex-chainstate", "1", true)];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert_eq!(cfg.core.reindex_chainstate, Some(true));
+    }
+
+    #[test]
+    fn from_entries_invalid_bool_yields_none() {
+        let entries = vec![make_entry("txindex", "yes", true)];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert!(cfg.core.txindex.is_none());
+    }
+
+    #[test]
+    fn from_entries_invalid_u32_yields_none() {
+        let entries = vec![make_entry("dbcache", "notanumber", true)];
+        let cfg = BitcoinConfig::from_entries(&entries);
+        assert!(cfg.core.dbcache.is_none());
+    }
+
+    // Tests for BitcoinConfig::to_entries()
+
+    #[test]
+    fn to_entries_some_fields_are_enabled() {
+        let mut cfg = BitcoinConfig::from_entries(&[]);
+        cfg.core.txindex = Some(true);
+        cfg.rpc.rpcport = Some(8332);
+
+        let entries = cfg.to_entries();
+        let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
+        assert!(txindex.enabled);
+        assert_eq!(txindex.value, "1");
+
+        let rpcport = entries.iter().find(|e| e.key == "rpcport").unwrap();
+        assert!(rpcport.enabled);
+        assert_eq!(rpcport.value, "8332");
+    }
+
+    #[test]
+    fn to_entries_none_fields_are_disabled_with_schema_default() {
+        let cfg = BitcoinConfig::from_entries(&[]);
+        let entries = cfg.to_entries();
+
+        let dbcache = entries.iter().find(|e| e.key == "dbcache").unwrap();
+        assert!(!dbcache.enabled);
+        assert_eq!(dbcache.value, "450"); // schema default
+
+        let rpcport = entries.iter().find(|e| e.key == "rpcport").unwrap();
+        assert!(!rpcport.enabled);
+        assert_eq!(rpcport.value, "8332"); // schema default
+    }
+
+    #[test]
+    fn to_entries_reindex_chainstate_uses_hyphen_key() {
+        let mut cfg = BitcoinConfig::from_entries(&[]);
+        cfg.core.reindex_chainstate = Some(true);
+        let entries = cfg.to_entries();
+        let e = entries
+            .iter()
+            .find(|e| e.key == "reindex-chainstate")
+            .unwrap();
+        assert!(e.enabled);
+        assert_eq!(e.value, "1");
+    }
+
+    #[test]
+    fn to_entries_entries_carry_schema() {
+        let cfg = BitcoinConfig::from_entries(&[]);
+        let entries = cfg.to_entries();
+        let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
+        assert!(txindex.schema.is_some());
+        let schema = txindex.schema.as_ref().unwrap();
+        assert_eq!(schema.config_type, ConfigType::Bool);
+        assert_eq!(schema.category, ConfigCategory::Core);
+    }
+
+    #[test]
+    fn to_entries_round_trip() {
+        let source = vec![
+            make_entry("txindex", "1", true),
+            make_entry("dbcache", "2000", true),
+            make_entry("rpcuser", "bob", true),
+            make_entry("fallbackfee", "0.0002", true),
+            make_entry("par", "-1", true),
+            make_entry("reindex-chainstate", "1", true),
+        ];
+        let cfg = BitcoinConfig::from_entries(&source);
+        let entries = cfg.to_entries();
+        let cfg2 = BitcoinConfig::from_entries(&entries);
+
+        assert_eq!(cfg2.core.txindex, Some(true));
+        assert_eq!(cfg2.core.dbcache, Some(2000u32));
+        assert_eq!(cfg2.rpc.rpcuser.as_deref(), Some("bob"));
+        assert_eq!(cfg2.wallet.fallbackfee.as_deref(), Some("0.0002"));
+        assert_eq!(cfg2.core.par, Some(-1i32));
+        assert_eq!(cfg2.core.reindex_chainstate, Some(true));
+    }
+
+    #[test]
+    fn to_entries_bool_false_serializes_as_zero() {
+        let mut cfg = BitcoinConfig::from_entries(&[]);
+        cfg.core.txindex = Some(false);
+        let entries = cfg.to_entries();
+        let txindex = entries.iter().find(|e| e.key == "txindex").unwrap();
+        assert!(txindex.enabled);
+        assert_eq!(txindex.value, "0");
     }
 }
