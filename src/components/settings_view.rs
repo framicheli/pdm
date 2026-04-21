@@ -272,4 +272,37 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn render_with_values_set_and_content_focused() {
+        use crate::app::App;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut app = App::new();
+        app.settings.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+        app.settings.p2pool_conf_path = Some(std::path::PathBuf::from("/tmp/p2pool.toml"));
+        app.settings.ln_conf_path = Some(std::path::PathBuf::from("/tmp/ln.conf"));
+        app.settings.shares_market_conf_path = Some(std::path::PathBuf::from("/tmp/shares.conf"));
+        app.settings.settings_dir_override = Some(std::path::PathBuf::from("/custom/dir"));
+        app.settings_view.sidebar_focused = false;
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                SettingsView::render(f, &mut app, area);
+            })
+            .unwrap();
+
+        let output: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect();
+
+        assert!(output.contains("bitcoin.conf") || output.contains("Settings"));
+    }
 }

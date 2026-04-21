@@ -638,4 +638,59 @@ mod tests {
         view.handle_input(key(KeyCode::F(1)), &entries);
         assert_eq!(view.save_message.as_deref(), Some("saved"));
     }
+
+    #[test]
+    fn render_with_entries_exercises_items_loop() {
+        use crate::app::App;
+        use crate::bitcoin_config::{ConfigCategory, ConfigSchema, ConfigType};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut app = App::new();
+        // Set a path so render goes past the early-return guard
+        app.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+
+        // One enabled entry
+        let mut e1 = entry("rpcuser", "alice", true);
+        e1.schema = Some(ConfigSchema::new(
+            "rpcuser",
+            "",
+            ConfigType::String,
+            ConfigCategory::RPC,
+            "RPC username",
+        ));
+
+        // One disabled entry with schema
+        let mut e2 = entry("dbcache", "450", false);
+        e2.schema = Some(ConfigSchema::new(
+            "dbcache",
+            "450",
+            ConfigType::Int,
+            ConfigCategory::Core,
+            "DB cache size",
+        ));
+
+        // One disabled entry with no schema
+        let e3 = entry("unknownkey", "", false);
+
+        app.bitcoin_data = vec![e1, e2, e3];
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                BitcoinConfigView::render(f, &mut app, area);
+            })
+            .unwrap();
+
+        let output: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect();
+
+        assert!(output.contains("Bitcoin Configuration"));
+    }
 }

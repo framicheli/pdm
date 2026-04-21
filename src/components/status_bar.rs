@@ -284,4 +284,78 @@ mod tests {
         let output = render_status_bar(&app);
         assert!(!output.contains("Clear"));
     }
+
+    #[test]
+    fn settings_save_error_shown_in_status_bar() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.save_error = Some("disk full".to_string());
+        let output = render_status_bar(&app);
+        assert!(output.contains("disk full"));
+    }
+
+    #[test]
+    fn settings_content_p2pool_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 1;
+        app.settings.p2pool_conf_path = Some(std::path::PathBuf::from("/tmp/p2pool.toml"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_ln_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 2;
+        app.settings.ln_conf_path = Some(std::path::PathBuf::from("/tmp/ln.conf"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_shares_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 3;
+        app.settings.shares_market_conf_path = Some(std::path::PathBuf::from("/tmp/shares.conf"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_directory_override_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 4;
+        app.settings.settings_dir_override = Some(std::path::PathBuf::from("/custom/dir"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_directory_input_field_no_browse_hint() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 4; // settings_dir_override = DirectoryInput
+        let output = render_status_bar(&app);
+        assert!(!output.contains("Browse file"));
+        assert!(output.contains("Back"));
+    }
+
+    #[test]
+    fn settings_content_out_of_range_field_no_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 99;
+        let output = render_status_bar(&app);
+        assert!(!output.contains("Clear"));
+    }
 }

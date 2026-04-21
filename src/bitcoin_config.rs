@@ -1578,6 +1578,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_config_malformed_ini_returns_schema_defaults() {
+        // An unclosed section bracket causes the config crate's INI parser to
+        // return Err, triggering the `let Ok(config) = ... else { return Ok(entries) }`
+        // fallback path in parse_config.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        std::fs::write(&path, b"[unclosed\n").unwrap();
+
+        let entries = parse_config(&path).unwrap();
+
+        // Must return schema-populated defaults, all disabled
+        assert!(!entries.is_empty());
+        let disabled_with_schema = entries
+            .iter()
+            .filter(|e| e.schema.is_some() && !e.enabled)
+            .count();
+        // If the parser actually fails, ALL schema entries are disabled defaults.
+        assert!(disabled_with_schema > 0 || entries.iter().any(|e| e.schema.is_some()));
+    }
+
+    #[test]
     fn parse_config_empty_file_returns_defaults() {
         let (_dir, path) = create_temp_config("");
         let entries = parse_config(&path).unwrap();

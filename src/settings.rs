@@ -205,4 +205,63 @@ mod tests {
         let path = settings_path().unwrap();
         assert_eq!(path.file_name().unwrap(), "settings.toml");
     }
+
+    fn set_config_dir(dir: &tempfile::TempDir) {
+        // Serialised by #[serial] — no concurrent access to PDM_CONFIG_DIR.
+        unsafe { std::env::set_var("PDM_CONFIG_DIR", dir.path()) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_settings_returns_default_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        set_config_dir(&dir);
+        // No settings.toml written
+        let settings = load_settings();
+        assert!(settings.bitcoin_conf_path.is_none());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_settings_returns_default_for_invalid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        set_config_dir(&dir);
+        std::fs::write(dir.path().join("settings.toml"), "not valid toml :::").unwrap();
+        let settings = load_settings();
+        assert!(settings.bitcoin_conf_path.is_none());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_settings_reads_valid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        set_config_dir(&dir);
+        std::fs::write(
+            dir.path().join("settings.toml"),
+            r#"bitcoin_conf_path = "/tmp/bitcoin.conf""#,
+        )
+        .unwrap();
+        let settings = load_settings();
+        assert_eq!(
+            settings.bitcoin_conf_path,
+            Some(PathBuf::from("/tmp/bitcoin.conf"))
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn save_settings_creates_and_load_settings_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        set_config_dir(&dir);
+        let settings = Settings {
+            bitcoin_conf_path: Some(PathBuf::from("/tmp/bitcoin.conf")),
+            ln_conf_path: Some(PathBuf::from("/tmp/ln.conf")),
+            ..Default::default()
+        };
+        save_settings(&settings).unwrap();
+        let loaded = load_settings();
+        assert_eq!(loaded.bitcoin_conf_path, settings.bitcoin_conf_path);
+        assert_eq!(loaded.ln_conf_path, settings.ln_conf_path);
+        assert!(loaded.p2pool_conf_path.is_none());
+    }
 }

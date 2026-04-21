@@ -354,4 +354,38 @@ mod tests {
         let action = explorer.handle_input(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
         assert!(matches!(action, crate::app::AppAction::CloseModal));
     }
+
+    #[test]
+    fn render_displays_files_and_dirs() {
+        use crate::app::App;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let base = setup_temp_fs();
+        let mut app = App::new();
+        app.explorer.current_dir = base.clone();
+        app.explorer.load_directory();
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                FileExplorer::render(f, &mut app, area);
+            })
+            .unwrap();
+
+        let output: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect();
+
+        // The title bar and at least one entry indicator must be present
+        assert!(output.contains("Select File"));
+        // The folder and file created by setup_temp_fs must appear with icons
+        assert!(output.contains("folder") || output.contains("📁"));
+        assert!(output.contains("file.txt") || output.contains("📄"));
+    }
 }
