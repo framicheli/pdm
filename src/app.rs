@@ -93,6 +93,9 @@ pub struct App {
     /// Cached value of the `HOME` environment variable, used for path display.
     /// Populated once at startup to avoid repeated syscalls during rendering.
     pub home_dir: String,
+    /// Cached result of `settings::config_dir()`, used to display the default
+    /// settings storage path without repeated env-var lookups during rendering.
+    pub config_dir: PathBuf,
 }
 
 impl App {
@@ -112,6 +115,7 @@ impl App {
             bitcoin_status_tab: 0,
             settings: Settings::default(),
             home_dir: std::env::var("HOME").unwrap_or_default(),
+            config_dir: crate::settings::config_dir().unwrap_or_default(),
         }
     }
 

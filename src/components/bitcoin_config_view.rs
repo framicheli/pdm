@@ -10,9 +10,9 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::path::Path;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// Shortens a path to fit within `max_len` Unicode scalar values (terminal columns)
-/// `home` value of the `HOME` environment variable if set
+/// Shortens a path to fit within `max_len` display columns.
 fn shorten_path(path: &Path, max_len: usize, home: &str) -> String {
     let full = path.to_string_lossy().into_owned();
 
@@ -22,7 +22,7 @@ fn shorten_path(path: &Path, max_len: usize, home: &str) -> String {
         full
     };
 
-    if s.chars().count() <= max_len {
+    if s.width() <= max_len {
         return s;
     }
 
@@ -39,21 +39,31 @@ fn shorten_path(path: &Path, max_len: usize, home: &str) -> String {
     // Try ~/…/parent/filename
     if let Some(ref parent) = parent_name {
         let candidate = format!("{prefix}/\u{2026}/{parent}/{filename}");
-        if candidate.chars().count() <= max_len {
+        if candidate.width() <= max_len {
             return candidate;
         }
     }
 
     // Try ~/…/filename
     let candidate = format!("{prefix}/\u{2026}/{filename}");
-    if candidate.chars().count() <= max_len {
+    if candidate.width() <= max_len {
         return candidate;
     }
 
-    // Truncate the right side on character boundaries
-    let avail = max_len.saturating_sub(1);
-    let total_chars = s.chars().count();
-    let suffix: String = s.chars().skip(total_chars.saturating_sub(avail)).collect();
+    // Truncate from the left, respecting display column width
+    let avail = max_len.saturating_sub(1); // 1 column for "…"
+    let mut width_acc = 0usize;
+    let mut suffix_chars: Vec<char> = Vec::new();
+    for c in s.chars().rev() {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(1);
+        if width_acc + cw > avail {
+            break;
+        }
+        width_acc += cw;
+        suffix_chars.push(c);
+    }
+    suffix_chars.reverse();
+    let suffix: String = suffix_chars.into_iter().collect();
     format!("\u{2026}{suffix}")
 }
 
@@ -378,7 +388,7 @@ mod tests {
         let p = Path::new("/a/very/long/path/to/parent/file.conf");
         let result = shorten_path(p, 20, "");
         assert!(result.contains("file.conf"));
-        assert!(result.chars().count() <= 20);
+        assert!(result.width() <= 20);
     }
 
     #[test]
@@ -388,7 +398,7 @@ mod tests {
         let p = Path::new(long_parent);
         let result = shorten_path(p, 18, "");
         assert!(result.contains("file.conf"));
-        assert!(result.chars().count() <= 18);
+        assert!(result.width() <= 18);
     }
 
     #[test]
@@ -397,19 +407,18 @@ mod tests {
         let p = Path::new("/a/b/c/d/e/verylongfilename.conf");
         let result = shorten_path(p, 5, "");
         assert!(result.starts_with('\u{2026}'));
-        assert!(result.chars().count() <= 5);
+        assert!(result.width() <= 5);
     }
 
     #[test]
     fn shorten_path_multibyte_chars_respected() {
-        // Each of these chars is 3 bytes but 1 column; byte-length checks would fail here
         let p = Path::new("/日本語/パス/ファイル.conf");
         let result = shorten_path(p, 15, "");
-        // Must not exceed 15 columns regardless of byte width
+        // Must not exceed 15 display columns regardless of byte/char width
         assert!(
-            result.chars().count() <= 15,
-            "got {} chars: {}",
-            result.chars().count(),
+            result.width() <= 15,
+            "got {} columns: {}",
+            result.width(),
             result
         );
     }

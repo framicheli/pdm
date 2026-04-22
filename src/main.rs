@@ -9,8 +9,10 @@ use pdm::app::{
 use pdm::bitcoin_config::{
     parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
 };
+use pdm::components::settings_view::{FIELDS, FieldKind};
 use pdm::settings::{load_settings, save_settings};
 use pdm::ui;
+use std::ops::ControlFlow;
 
 use anyhow::Result;
 use crossterm::{
@@ -74,9 +76,7 @@ where
             }
 
             // Ctrl-C is always a hard exit.
-            // 'q' is suppressed while a text-input field is active so the
-            // character can be typed into the field.  Extend this guard when
-            // new screens with text-input modes are added.
+            // 'q' is suppressed while a text-input field is active.
             let text_input_active = app.current_screen == CurrentScreen::BitcoinConfig
                 && !app.bitcoin_config_view.sidebar_focused
                 && app.bitcoin_config_view.editing;
@@ -158,7 +158,7 @@ where
                 },
             };
 
-            if handle_action(action, app)? {
+            if handle_action(action, app)?.is_break() {
                 return Ok(());
             }
         }
@@ -190,23 +190,35 @@ fn bootstrap_from_settings(app: &mut App) {
 
 // Logic Handler
 #[allow(clippy::too_many_lines)] // Central dispatch; splitting would obscure the flow
-fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
+fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
     match action {
-        AppAction::Quit => return Ok(true),
+        AppAction::Quit => return Ok(ControlFlow::Break(())),
 
         AppAction::ToggleMenu => app.toggle_menu(),
 
         AppAction::OpenExplorer(trigger) => {
+            if app.explorer.allow_dir_select {
+                app.explorer.allow_dir_select = false;
+                app.explorer.load_directory();
+            }
             app.explorer_trigger = Some(trigger);
             app.current_screen = CurrentScreen::FileExplorer;
         }
 
         AppAction::OpenExplorerForSettings(field) => {
+            let dir_select = FIELDS
+                .get(field)
+                .map_or(false, |f| matches!(f.1, FieldKind::DirectoryPicker));
+            if app.explorer.allow_dir_select != dir_select {
+                app.explorer.allow_dir_select = dir_select;
+                app.explorer.load_directory();
+            }
             app.explorer_trigger = Some(ExplorerTrigger::Settings(field));
             app.current_screen = CurrentScreen::FileExplorer;
         }
 
         AppAction::CloseModal => {
+            app.explorer.allow_dir_select = false;
             app.explorer_trigger = None;
             app.toggle_menu();
         }
@@ -223,6 +235,7 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                         }
                         app.current_screen = CurrentScreen::P2PoolConfig;
                         app.settings.p2pool_conf_path = Some(path.clone());
+                        app.settings_view.save_error = None;
                         if let Err(e) = save_settings(&app.settings) {
                             app.settings_view.save_error = Some(format!("Save failed: {e}"));
                         }
@@ -244,9 +257,11 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                                 app.bitcoin_config_view.sidebar_focused = false;
                                 app.bitcoin_config_view.warning_message = None;
                                 app.settings.bitcoin_conf_path = Some(path.clone());
+                                app.settings_view.save_error = None;
                                 if let Err(e) = save_settings(&app.settings) {
-                                    app.settings_view.save_error =
-                                        Some(format!("Save failed: {e}"));
+                                    let save_error = format!("Save failed: {e}");
+                                    app.settings_view.save_error = Some(save_error.clone());
+                                    app.bitcoin_config_view.warning_message = Some(save_error);
                                 }
                             } else {
                                 app.bitcoin_config_view.warning_message = Some(
@@ -264,15 +279,55 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
                         }
                     },
                     ExplorerTrigger::Settings(field) => {
+                        app.explorer.allow_dir_select = false;
+                        let mut should_save = true;
                         match field {
-                            0 => app.settings.bitcoin_conf_path = Some(path.clone()),
-                            1 => app.settings.p2pool_conf_path = Some(path.clone()),
+                            0 => match parse_bitcoin_config(&path) {
+                                Ok(entries) => {
+                                    let known_key_count = entries
+                                        .iter()
+                                        .filter(|e| e.enabled && e.schema.is_some())
+                                        .count();
+                                    if known_key_count >= 1 {
+                                        app.bitcoin_conf_path = Some(path.clone());
+                                        app.bitcoin_data = entries;
+                                        app.bitcoin_config_view.selected_index = 0;
+                                        app.bitcoin_config_view.dirty = false;
+                                        app.bitcoin_config_view.warning_message = None;
+                                        app.settings.bitcoin_conf_path = Some(path.clone());
+                                    } else {
+                                        app.settings_view.save_error = Some(
+                                            "File does not appear to be a Bitcoin config."
+                                                .to_string(),
+                                        );
+                                        should_save = false;
+                                    }
+                                }
+                                Err(e) => {
+                                    app.settings_view.save_error =
+                                        Some(format!("Failed to read config: {e}"));
+                                    should_save = false;
+                                }
+                            },
+                            1 => {
+                                app.p2pool_conf_path = Some(path.clone());
+                                if let Some(p) = path.to_str()
+                                    && let Ok(cfg) = P2PoolConfig::load(p)
+                                {
+                                    app.p2pool_config = Some(cfg);
+                                }
+                                app.settings.p2pool_conf_path = Some(path.clone());
+                            }
                             2 => app.settings.ln_conf_path = Some(path.clone()),
                             3 => app.settings.shares_market_conf_path = Some(path.clone()),
+                            4 => app.settings.settings_dir_override = Some(path.clone()),
                             _ => {}
                         }
-                        if let Err(e) = save_settings(&app.settings) {
-                            app.settings_view.save_error = Some(format!("Save failed: {e}"));
+                        if should_save {
+                            app.settings_view.save_error = None;
+                            if let Err(e) = save_settings(&app.settings) {
+                                app.settings_view.save_error = Some(format!("Save failed: {e}"));
+                            }
                         }
                         app.current_screen = CurrentScreen::Settings;
                         app.settings_view.sidebar_focused = false;
@@ -304,8 +359,16 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
 
         AppAction::ClearSettingsField(field) => {
             match field {
-                0 => app.settings.bitcoin_conf_path = None,
-                1 => app.settings.p2pool_conf_path = None,
+                0 => {
+                    app.settings.bitcoin_conf_path = None;
+                    app.bitcoin_conf_path = None;
+                    app.bitcoin_data.clear();
+                }
+                1 => {
+                    app.settings.p2pool_conf_path = None;
+                    app.p2pool_conf_path = None;
+                    app.p2pool_config = None;
+                }
                 2 => app.settings.ln_conf_path = None,
                 3 => app.settings.shares_market_conf_path = None,
                 4 => app.settings.settings_dir_override = None,
@@ -320,7 +383,7 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<bool> {
         AppAction::None => {}
     }
 
-    Ok(false)
+    Ok(ControlFlow::Continue(()))
 }
 
 #[cfg(test)]
@@ -337,6 +400,11 @@ mod tests {
         // serial_test crate serialises within the process via a mutex. No concurrent
         // read or write of PDM_CONFIG_DIR can occur while the lock is held.
         unsafe { std::env::set_var("PDM_CONFIG_DIR", dir.path()) };
+    }
+
+    /// Run an action for its side effects, discarding the ControlFlow return.
+    fn run(action: AppAction, app: &mut App) {
+        let _ = handle_action(action, app).unwrap();
     }
 
     #[test]
@@ -371,7 +439,7 @@ mod tests {
         assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
 
         // Open explorer
-        handle_action(
+        let _ = handle_action(
             AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
         )
@@ -380,7 +448,7 @@ mod tests {
         assert_eq!(app.current_screen, CurrentScreen::FileExplorer);
 
         // Close explorer
-        handle_action(AppAction::CloseModal, &mut app).unwrap();
+        let _ = handle_action(AppAction::CloseModal, &mut app).unwrap();
         assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
 
         terminal.draw(|f| ui::ui(f, &mut app)).unwrap();
@@ -408,7 +476,7 @@ mod tests {
         app.explorer.current_dir = base.to_path_buf();
         app.explorer.load_directory();
 
-        handle_action(
+        let _ = handle_action(
             AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
         )
@@ -422,7 +490,7 @@ mod tests {
             .explorer
             .handle_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
-        handle_action(action, &mut app).unwrap();
+        let _ = handle_action(action, &mut app).unwrap();
 
         assert_eq!(app.bitcoin_conf_path, Some(file_path));
 
@@ -433,13 +501,13 @@ mod tests {
     fn app_action_open_explorer_sets_state() {
         let mut app = App::new();
 
-        let exited = handle_action(
+        let flow = handle_action(
             AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
         )
         .unwrap();
 
-        assert!(!exited);
+        assert!(flow.is_continue());
         assert_eq!(app.current_screen, CurrentScreen::FileExplorer);
         assert_eq!(app.explorer_trigger, Some(ExplorerTrigger::BitcoinConfig));
     }
@@ -452,9 +520,9 @@ mod tests {
         app.explorer_trigger = Some(ExplorerTrigger::BitcoinConfig);
         app.current_screen = CurrentScreen::FileExplorer;
 
-        let exited = handle_action(AppAction::CloseModal, &mut app).unwrap();
+        let flow = handle_action(AppAction::CloseModal, &mut app).unwrap();
 
-        assert!(!exited);
+        assert!(flow.is_continue());
         assert_eq!(app.current_screen, CurrentScreen::BitcoinConfig);
         assert!(app.explorer_trigger.is_none());
     }
@@ -463,9 +531,9 @@ mod tests {
     fn app_action_quit_requests_exit() {
         let mut app = App::new();
 
-        let exited = handle_action(AppAction::Quit, &mut app).unwrap();
+        let flow = handle_action(AppAction::Quit, &mut app).unwrap();
 
-        assert!(exited);
+        assert!(flow.is_break());
     }
 
     #[test]
@@ -490,7 +558,7 @@ mod tests {
             },
         ];
 
-        handle_action(AppAction::CommitEdit(0, "alice".to_string()), &mut app).unwrap();
+        run(AppAction::CommitEdit(0, "alice".to_string()), &mut app);
 
         assert_eq!(app.bitcoin_data[0].value, "alice");
         assert!(app.bitcoin_data[0].enabled);
@@ -524,7 +592,7 @@ mod tests {
             section: None,
         }];
 
-        handle_action(AppAction::SaveBitcoinConfig, &mut app).unwrap();
+        run(AppAction::SaveBitcoinConfig, &mut app);
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("rpcuser=testuser"));
@@ -546,7 +614,7 @@ mod tests {
     #[test]
     fn navigate_action_changes_screen() {
         let mut app = App::new();
-        handle_action(AppAction::Navigate(CurrentScreen::BitcoinStatus), &mut app).unwrap();
+        run(AppAction::Navigate(CurrentScreen::BitcoinStatus), &mut app);
         assert_eq!(app.current_screen, CurrentScreen::BitcoinStatus);
     }
 
@@ -562,7 +630,7 @@ mod tests {
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::BitcoinConfig);
 
-        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+        run(AppAction::FileSelected(path), &mut app);
 
         assert!(app.bitcoin_config_view.warning_message.is_some());
         assert!(app.bitcoin_conf_path.is_none());
@@ -583,11 +651,10 @@ mod tests {
         let mut app = App::new();
         app.sidebar_index = 1;
         app.toggle_menu();
-        handle_action(
+        run(
             AppAction::OpenExplorer(ExplorerTrigger::BitcoinConfig),
             &mut app,
-        )
-        .unwrap();
+        );
 
         app.explorer.current_dir = dir.path().to_path_buf();
         app.explorer.load_directory();
@@ -598,7 +665,7 @@ mod tests {
         let action = app
             .explorer
             .handle_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
-        handle_action(action, &mut app).unwrap();
+        run(action, &mut app);
 
         // After file selection, sidebar_focused should be false
         assert!(!app.bitcoin_config_view.sidebar_focused);
@@ -675,7 +742,7 @@ mod tests {
             section: None,
         }];
 
-        handle_action(AppAction::CommitEdit(0, "new".to_string()), &mut app).unwrap();
+        run(AppAction::CommitEdit(0, "new".to_string()), &mut app);
 
         assert!(app.bitcoin_config_view.dirty);
         assert_eq!(app.bitcoin_data[0].value, "new");
@@ -700,7 +767,7 @@ mod tests {
             section: None,
         }];
 
-        handle_action(AppAction::SaveBitcoinConfig, &mut app).unwrap();
+        run(AppAction::SaveBitcoinConfig, &mut app);
 
         assert!(!app.bitcoin_config_view.dirty);
     }
@@ -719,7 +786,7 @@ mod tests {
         app.bitcoin_config_view.dirty = true;
         app.explorer_trigger = Some(ExplorerTrigger::BitcoinConfig);
 
-        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+        run(AppAction::FileSelected(path), &mut app);
 
         assert!(!app.bitcoin_config_view.dirty);
     }
@@ -728,7 +795,7 @@ mod tests {
     fn commit_edit_out_of_bounds_does_not_set_dirty() {
         let mut app = App::new();
         // bitcoin_data is empty; CommitEdit with bad index must not set dirty
-        handle_action(AppAction::CommitEdit(99, "val".to_string()), &mut app).unwrap();
+        run(AppAction::CommitEdit(99, "val".to_string()), &mut app);
         assert!(!app.bitcoin_config_view.dirty);
     }
 
@@ -740,9 +807,9 @@ mod tests {
         app.sidebar_index = 8;
         app.toggle_menu();
 
-        let exited = handle_action(AppAction::OpenExplorerForSettings(1), &mut app).unwrap();
+        let flow = handle_action(AppAction::OpenExplorerForSettings(1), &mut app).unwrap();
 
-        assert!(!exited);
+        assert!(flow.is_continue());
         assert_eq!(app.current_screen, CurrentScreen::FileExplorer);
         assert_eq!(app.explorer_trigger, Some(ExplorerTrigger::Settings(1)));
     }
@@ -760,7 +827,7 @@ mod tests {
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::Settings(2)); // ln_conf_path
 
-        handle_action(AppAction::FileSelected(path.clone()), &mut app).unwrap();
+        run(AppAction::FileSelected(path.clone()), &mut app);
 
         assert_eq!(app.settings.ln_conf_path, Some(path));
         assert_eq!(app.current_screen, CurrentScreen::Settings);
@@ -780,7 +847,7 @@ mod tests {
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::BitcoinConfig);
 
-        handle_action(AppAction::FileSelected(path.clone()), &mut app).unwrap();
+        run(AppAction::FileSelected(path.clone()), &mut app);
 
         assert_eq!(app.settings.bitcoin_conf_path, Some(path));
     }
@@ -876,13 +943,15 @@ mod tests {
         let dir = tempdir().unwrap();
         redirect_saves_to(&dir);
         let path = dir.path().join("bitcoin.conf");
-        std::fs::write(&path, "").unwrap();
+        std::fs::write(&path, "rpcuser=test\n").unwrap();
 
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::Settings(0));
-        handle_action(AppAction::FileSelected(path.clone()), &mut app).unwrap();
+        run(AppAction::FileSelected(path.clone()), &mut app);
 
-        assert_eq!(app.settings.bitcoin_conf_path, Some(path));
+        assert_eq!(app.settings.bitcoin_conf_path, Some(path.clone()));
+        assert_eq!(app.bitcoin_conf_path, Some(path));
+        assert!(!app.bitcoin_data.is_empty());
         assert_eq!(app.current_screen, CurrentScreen::Settings);
     }
 
@@ -898,7 +967,7 @@ mod tests {
 
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::Settings(1));
-        handle_action(AppAction::FileSelected(path.clone()), &mut app).unwrap();
+        run(AppAction::FileSelected(path.clone()), &mut app);
 
         assert_eq!(app.settings.p2pool_conf_path, Some(path));
         assert_eq!(app.current_screen, CurrentScreen::Settings);
@@ -916,7 +985,7 @@ mod tests {
 
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::Settings(3));
-        handle_action(AppAction::FileSelected(path.clone()), &mut app).unwrap();
+        run(AppAction::FileSelected(path.clone()), &mut app);
 
         assert_eq!(app.settings.shares_market_conf_path, Some(path));
         assert_eq!(app.current_screen, CurrentScreen::Settings);
@@ -934,14 +1003,73 @@ mod tests {
 
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::Settings(99));
-        handle_action(AppAction::FileSelected(path), &mut app).unwrap();
+        run(AppAction::FileSelected(path), &mut app);
 
         // None of the settings fields must have been touched
         assert!(app.settings.bitcoin_conf_path.is_none());
         assert!(app.settings.p2pool_conf_path.is_none());
         assert!(app.settings.ln_conf_path.is_none());
         assert!(app.settings.shares_market_conf_path.is_none());
+        assert!(app.settings.settings_dir_override.is_none());
         assert_eq!(app.current_screen, CurrentScreen::Settings);
+    }
+
+    #[test]
+    #[serial]
+    fn file_selected_for_settings_field_4_sets_dir_override() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        redirect_saves_to(&dir);
+        // The "path" returned by the sentinel is the directory itself.
+        let settings_dir = tempdir().unwrap();
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(ExplorerTrigger::Settings(4));
+        run(
+            AppAction::FileSelected(settings_dir.path().to_path_buf()),
+            &mut app,
+        );
+
+        assert_eq!(
+            app.settings.settings_dir_override,
+            Some(settings_dir.path().to_path_buf())
+        );
+        assert_eq!(app.current_screen, CurrentScreen::Settings);
+        assert!(!app.settings_view.sidebar_focused);
+        // allow_dir_select must be reset after selection
+        assert!(!app.explorer.allow_dir_select);
+    }
+
+    #[test]
+    fn open_explorer_for_settings_field4_enables_dir_select() {
+        let mut app = App::new();
+        run(AppAction::OpenExplorerForSettings(4), &mut app);
+        assert!(app.explorer.allow_dir_select);
+        assert_eq!(app.current_screen, CurrentScreen::FileExplorer);
+    }
+
+    #[test]
+    fn open_explorer_for_settings_non_dir_field_disables_dir_select() {
+        let mut app = App::new();
+        // First enable dir select, then open a file-picker field — must reset.
+        app.explorer.allow_dir_select = true;
+        run(AppAction::OpenExplorerForSettings(0), &mut app);
+        assert!(!app.explorer.allow_dir_select);
+    }
+
+    #[test]
+    fn close_modal_resets_allow_dir_select() {
+        let mut app = App::new();
+        app.explorer.allow_dir_select = true;
+        app.explorer_trigger = Some(ExplorerTrigger::Settings(4));
+        app.current_screen = CurrentScreen::FileExplorer;
+        app.sidebar_index = MAX_SIDEBAR_INDEX;
+
+        run(AppAction::CloseModal, &mut app);
+
+        assert!(!app.explorer.allow_dir_select);
+        assert!(app.explorer_trigger.is_none());
     }
 
     // Fix 16: CloseModal clears the ExplorerTrigger when triggered from Settings
@@ -952,7 +1080,7 @@ mod tests {
         app.explorer_trigger = Some(ExplorerTrigger::Settings(2));
         app.current_screen = CurrentScreen::FileExplorer;
 
-        handle_action(AppAction::CloseModal, &mut app).unwrap();
+        run(AppAction::CloseModal, &mut app);
 
         assert!(app.explorer_trigger.is_none());
         assert_eq!(app.current_screen, CurrentScreen::Settings);
@@ -974,22 +1102,24 @@ mod tests {
         app.settings.p2pool_conf_path = Some(PathBuf::from("/tmp/p2pool.toml"));
         app.settings.ln_conf_path = Some(PathBuf::from("/tmp/ln.conf"));
         app.settings.shares_market_conf_path = Some(PathBuf::from("/tmp/shares.conf"));
-        app.settings.settings_dir_override = Some(PathBuf::from("/tmp/custom"));
+        app.bitcoin_conf_path = Some(PathBuf::from("/tmp/bitcoin.conf"));
+        app.p2pool_conf_path = Some(PathBuf::from("/tmp/p2pool.toml"));
 
-        handle_action(AppAction::ClearSettingsField(0), &mut app).unwrap();
+        run(AppAction::ClearSettingsField(0), &mut app);
         assert!(app.settings.bitcoin_conf_path.is_none());
+        assert!(app.bitcoin_conf_path.is_none());
+        assert!(app.bitcoin_data.is_empty());
 
-        handle_action(AppAction::ClearSettingsField(1), &mut app).unwrap();
+        run(AppAction::ClearSettingsField(1), &mut app);
         assert!(app.settings.p2pool_conf_path.is_none());
+        assert!(app.p2pool_conf_path.is_none());
+        assert!(app.p2pool_config.is_none());
 
-        handle_action(AppAction::ClearSettingsField(2), &mut app).unwrap();
+        run(AppAction::ClearSettingsField(2), &mut app);
         assert!(app.settings.ln_conf_path.is_none());
 
-        handle_action(AppAction::ClearSettingsField(3), &mut app).unwrap();
+        run(AppAction::ClearSettingsField(3), &mut app);
         assert!(app.settings.shares_market_conf_path.is_none());
-
-        handle_action(AppAction::ClearSettingsField(4), &mut app).unwrap();
-        assert!(app.settings.settings_dir_override.is_none());
     }
 
     #[test]
@@ -1017,7 +1147,7 @@ mod tests {
         let mut app = App::new();
         app.settings_view.save_error = Some("previous error".to_string());
 
-        handle_action(AppAction::ClearSettingsField(0), &mut app).unwrap();
+        run(AppAction::ClearSettingsField(0), &mut app);
 
         // A successful save clears the error
         assert!(app.settings_view.save_error.is_none());

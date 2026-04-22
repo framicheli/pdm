@@ -26,8 +26,9 @@ pub struct Settings {
     pub ln_conf_path: Option<PathBuf>,
     /// Path to the Shares Market config file
     pub shares_market_conf_path: Option<PathBuf>,
-    /// If set, the user has chosen a custom settings directory.
-    /// Takes effect on restart.
+    /// If set, the user-chosen directory where `settings.toml` is stored.
+    /// the default location always holds a copy so the override is found
+    /// on the next launch.
     pub settings_dir_override: Option<PathBuf>,
 }
 
@@ -66,24 +67,47 @@ pub fn load_settings() -> Settings {
     let Ok(content) = std::fs::read_to_string(&path) else {
         return Settings::default();
     };
-    toml::from_str(&content).unwrap_or_else(|e| {
+    let settings: Settings = toml::from_str(&content).unwrap_or_else(|e| {
         eprintln!("pdm: failed to parse settings: {e}");
         Settings::default()
-    })
+    });
+    if let Some(ref override_dir) = settings.settings_dir_override {
+        let override_path = override_dir.join("settings.toml");
+        if let Ok(content) = std::fs::read_to_string(&override_path)
+            && let Ok(s) = toml::from_str::<Settings>(&content)
+        {
+            return s;
+        }
+    }
+    settings
 }
 
 /// Saves settings to disk, creating the config directory if needed.
 ///
 /// # Errors
-/// Returns an error if the config directory cannot be determined, the directory
-/// cannot be created, the settings cannot be serialised, or the file cannot be written.
+/// Returns an error if any required directory cannot be created
 pub fn save_settings(settings: &Settings) -> Result<()> {
-    let path = settings_path()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let content = toml::to_string_pretty(settings)?;
-    std::fs::write(&path, content)?;
+    if let Some(ref override_dir) = settings.settings_dir_override {
+        // Write to the user-chosen location.
+        let override_path = override_dir.join("settings.toml");
+        if let Some(parent) = override_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&override_path, &content)?;
+        // Write a copy to the default location so the override is found on restart.
+        let default_path = settings_path()?;
+        if let Some(parent) = default_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&default_path, &content)?;
+    } else {
+        let path = settings_path()?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, content)?;
+    }
     Ok(())
 }
 
@@ -109,9 +133,7 @@ mod tests {
         let settings = Settings {
             bitcoin_conf_path: Some(PathBuf::from("/tmp/bitcoin.conf")),
             p2pool_conf_path: Some(PathBuf::from("/tmp/p2pool.toml")),
-            ln_conf_path: None,
-            shares_market_conf_path: None,
-            settings_dir_override: None,
+            ..Default::default()
         };
         let content = toml::to_string_pretty(&settings).unwrap();
         std::fs::write(&path, content).unwrap();
@@ -130,26 +152,17 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn save_and_load_via_public_functions() {
-        // Use a temp dir as the config dir by writing directly then calling load_settings
-        // via the file path rather than the env-var route (avoids unsafe set_var in 2024 edition)
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.toml");
-
+        set_config_dir(&dir);
         let settings = Settings {
             bitcoin_conf_path: Some(PathBuf::from("/tmp/bitcoin.conf")),
             ln_conf_path: Some(PathBuf::from("/tmp/ln.conf")),
             ..Default::default()
         };
-
-        // Call save_settings directly with a known path (mirrors what save_settings does)
-        let content = toml::to_string_pretty(&settings).unwrap();
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, content).unwrap();
-
-        let loaded: Settings =
-            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap_or_default();
-
+        save_settings(&settings).unwrap();
+        let loaded = load_settings();
         assert_eq!(
             loaded.bitcoin_conf_path,
             Some(PathBuf::from("/tmp/bitcoin.conf"))
@@ -159,38 +172,20 @@ mod tests {
     }
 
     #[test]
-    fn save_settings_public_fn_creates_file() {
+    #[serial_test::serial]
+    fn save_settings_creates_file_via_public_fn() {
         let dir = tempfile::tempdir().unwrap();
-        // Point save_settings at a path we control by writing directly
-        let path = dir.path().join("settings.toml");
-
+        set_config_dir(&dir);
         let settings = Settings {
             shares_market_conf_path: Some(PathBuf::from("/tmp/shares.conf")),
             ..Default::default()
         };
-
-        let content = toml::to_string_pretty(&settings).unwrap();
-        std::fs::write(&path, content).unwrap();
-
+        save_settings(&settings).unwrap();
+        let path = dir.path().join("settings.toml");
         assert!(path.exists());
-        let content_back = std::fs::read_to_string(&path).unwrap();
-        assert!(content_back.contains("shares_market_conf_path"));
-        assert!(content_back.contains("/tmp/shares.conf"));
-    }
-
-    #[test]
-    fn settings_dir_override_field_serializes() {
-        let settings = Settings {
-            settings_dir_override: Some(PathBuf::from("/custom/dir")),
-            ..Default::default()
-        };
-        let toml_str = toml::to_string_pretty(&settings).unwrap();
-        assert!(toml_str.contains("settings_dir_override"));
-        let back: Settings = toml::from_str(&toml_str).unwrap();
-        assert_eq!(
-            back.settings_dir_override,
-            Some(PathBuf::from("/custom/dir"))
-        );
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("shares_market_conf_path"));
+        assert!(content.contains("/tmp/shares.conf"));
     }
 
     #[test]
@@ -249,6 +244,21 @@ mod tests {
     }
 
     #[test]
+    fn settings_dir_override_field_serializes() {
+        let settings = Settings {
+            settings_dir_override: Some(PathBuf::from("/custom/dir")),
+            ..Default::default()
+        };
+        let toml_str = toml::to_string_pretty(&settings).unwrap();
+        assert!(toml_str.contains("settings_dir_override"));
+        let back: Settings = toml::from_str(&toml_str).unwrap();
+        assert_eq!(
+            back.settings_dir_override,
+            Some(PathBuf::from("/custom/dir"))
+        );
+    }
+
+    #[test]
     #[serial_test::serial]
     fn save_settings_creates_and_load_settings_reads_back() {
         let dir = tempfile::tempdir().unwrap();
@@ -263,5 +273,94 @@ mod tests {
         assert_eq!(loaded.bitcoin_conf_path, settings.bitcoin_conf_path);
         assert_eq!(loaded.ln_conf_path, settings.ln_conf_path);
         assert!(loaded.p2pool_conf_path.is_none());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn save_with_override_writes_to_override_dir_and_default() {
+        let default_dir = tempfile::tempdir().unwrap();
+        let override_dir = tempfile::tempdir().unwrap();
+        set_config_dir(&default_dir);
+
+        let settings = Settings {
+            bitcoin_conf_path: Some(PathBuf::from("/tmp/bitcoin.conf")),
+            settings_dir_override: Some(override_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        save_settings(&settings).unwrap();
+
+        // Both the override location and the default location must have the file.
+        let override_path = override_dir.path().join("settings.toml");
+        let default_path = default_dir.path().join("settings.toml");
+        assert!(override_path.exists(), "override settings.toml missing");
+        assert!(default_path.exists(), "default settings.toml missing");
+
+        let override_content = std::fs::read_to_string(&override_path).unwrap();
+        let default_content = std::fs::read_to_string(&default_path).unwrap();
+        assert!(override_content.contains("/tmp/bitcoin.conf"));
+        assert!(default_content.contains("/tmp/bitcoin.conf"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_settings_reads_from_override_dir_when_set() {
+        let default_dir = tempfile::tempdir().unwrap();
+        let override_dir = tempfile::tempdir().unwrap();
+        set_config_dir(&default_dir);
+
+        // Write a pointer in the default dir.
+        let pointer = Settings {
+            settings_dir_override: Some(override_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        std::fs::write(
+            default_dir.path().join("settings.toml"),
+            toml::to_string_pretty(&pointer).unwrap(),
+        )
+        .unwrap();
+
+        // Write the authoritative settings in the override dir.
+        let authoritative = Settings {
+            bitcoin_conf_path: Some(PathBuf::from("/override/bitcoin.conf")),
+            settings_dir_override: Some(override_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        std::fs::write(
+            override_dir.path().join("settings.toml"),
+            toml::to_string_pretty(&authoritative).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_settings();
+        assert_eq!(
+            loaded.bitcoin_conf_path,
+            Some(PathBuf::from("/override/bitcoin.conf"))
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_settings_falls_back_to_default_when_override_unreadable() {
+        let default_dir = tempfile::tempdir().unwrap();
+        set_config_dir(&default_dir);
+
+        // Pointer points to a directory that doesn't exist.
+        let pointer = Settings {
+            bitcoin_conf_path: Some(PathBuf::from("/default/bitcoin.conf")),
+            settings_dir_override: Some(PathBuf::from("/nonexistent/dir")),
+            ..Default::default()
+        };
+        std::fs::write(
+            default_dir.path().join("settings.toml"),
+            toml::to_string_pretty(&pointer).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_settings();
+        // Override unreadable → falls back to the default-location settings.
+        assert_eq!(
+            loaded.bitcoin_conf_path,
+            Some(PathBuf::from("/default/bitcoin.conf"))
+        );
     }
 }

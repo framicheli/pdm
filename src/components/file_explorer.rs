@@ -22,6 +22,8 @@ pub struct FileExplorer {
     pub files: Vec<PathBuf>,
     /// Index of the currently selected item.
     pub selected_index: usize,
+    /// When true, the explorer is in directory-selection mode.
+    pub allow_dir_select: bool,
 }
 
 impl Default for FileExplorer {
@@ -39,6 +41,7 @@ impl FileExplorer {
             current_dir,
             files: Vec::new(),
             selected_index: 0,
+            allow_dir_select: false,
         };
         explorer.load_directory();
         explorer
@@ -52,7 +55,10 @@ impl FileExplorer {
         self.files.clear();
         self.selected_index = 0;
 
-        // Add ".." for going up a directory
+        if self.allow_dir_select {
+            self.files.push(self.current_dir.clone());
+        }
+
         if self.current_dir.parent().is_some() {
             self.files.push(self.current_dir.join(".."));
         }
@@ -65,7 +71,7 @@ impl FileExplorer {
                 let path = entry.path();
                 if path.is_dir() {
                     dirs.push(path);
-                } else {
+                } else if !self.allow_dir_select {
                     files.push(path);
                 }
             }
@@ -107,6 +113,10 @@ impl FileExplorer {
         }
 
         let selected = self.files[self.selected_index].clone();
+
+        if self.allow_dir_select && selected == self.current_dir {
+            return Some(selected);
+        }
 
         if selected.ends_with("..") {
             if let Some(parent) = self.current_dir.parent() {
@@ -152,12 +162,17 @@ impl FileExplorer {
     }
 
     pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
+        let allow_dir_select = app.explorer.allow_dir_select;
+        let sentinel = app.explorer.current_dir.clone();
+
         let files: Vec<ListItem> = app
             .explorer
             .files
             .iter()
             .map(|path| {
-                let display_name = if path.ends_with("..") {
+                let display_name = if allow_dir_select && path == &sentinel {
+                    "[✓ Use this directory]".to_string()
+                } else if path.ends_with("..") {
                     "📁 ..".to_string()
                 } else {
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -174,10 +189,17 @@ impl FileExplorer {
         let mut state = ListState::default();
         state.select(Some(app.explorer.selected_index));
 
-        let title = format!(
-            " Select File (Current: {}) ",
-            app.explorer.current_dir.display()
-        );
+        let title = if allow_dir_select {
+            format!(
+                " Select Directory (Current: {}) ",
+                app.explorer.current_dir.display()
+            )
+        } else {
+            format!(
+                " Select File (Current: {}) ",
+                app.explorer.current_dir.display()
+            )
+        };
 
         let list = List::new(files)
             .block(Block::default().borders(Borders::ALL).title(title))
@@ -219,6 +241,7 @@ mod tests {
             current_dir: dir,
             files: vec![],
             selected_index: 0,
+            allow_dir_select: false,
         };
 
         explorer.load_directory();
@@ -232,6 +255,7 @@ mod tests {
             current_dir: dir,
             files: vec![PathBuf::from("a"), PathBuf::from("b")],
             selected_index: 0,
+            allow_dir_select: false,
         };
 
         explorer.next();
@@ -253,6 +277,7 @@ mod tests {
             current_dir: dir,
             files: vec![file.clone()],
             selected_index: 0,
+            allow_dir_select: false,
         };
 
         let result = explorer.select();
@@ -269,6 +294,7 @@ mod tests {
             current_dir: child.clone(),
             files: vec![],
             selected_index: 0,
+            allow_dir_select: false,
         };
 
         explorer.load_directory();
@@ -294,6 +320,7 @@ mod tests {
             current_dir: base.clone(),
             files: vec![folder.clone()],
             selected_index: 0,
+            allow_dir_select: false,
         };
 
         let result = explorer.select();
@@ -314,6 +341,7 @@ mod tests {
             current_dir: dir,
             files: vec![PathBuf::from("a"), PathBuf::from("b"), PathBuf::from("c")],
             selected_index: 2,
+            allow_dir_select: false,
         };
 
         explorer.previous();
@@ -331,6 +359,7 @@ mod tests {
             current_dir: child.clone(),
             files: vec![],
             selected_index: 0,
+            allow_dir_select: false,
         };
         explorer.load_directory();
 
@@ -349,10 +378,83 @@ mod tests {
             current_dir: dir,
             files: vec![],
             selected_index: 0,
+            allow_dir_select: false,
         };
 
         let action = explorer.handle_input(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
         assert!(matches!(action, crate::app::AppAction::CloseModal));
+    }
+
+    #[test]
+    fn allow_dir_select_prepends_sentinel_and_hides_files() {
+        let base = setup_temp_fs();
+        let mut explorer = FileExplorer {
+            current_dir: base.clone(),
+            files: Vec::new(),
+            selected_index: 0,
+            allow_dir_select: true,
+        };
+        explorer.load_directory();
+
+        // First entry must be the sentinel.
+        assert_eq!(explorer.files[0], base, "sentinel must be first");
+        // Regular files must be excluded.
+        assert!(
+            explorer
+                .files
+                .iter()
+                .all(|p| !p.extension().is_some_and(|e| e == "txt")),
+            "txt files must be hidden in dir-select mode"
+        );
+        // Subdirectories must still appear.
+        assert!(
+            explorer
+                .files
+                .iter()
+                .any(|p| p.file_name() == Some(std::ffi::OsStr::new("folder")))
+        );
+    }
+
+    #[test]
+    fn allow_dir_select_sentinel_returns_current_dir() {
+        let base = setup_temp_fs();
+        let mut explorer = FileExplorer {
+            current_dir: base.clone(),
+            files: Vec::new(),
+            selected_index: 0,
+            allow_dir_select: true,
+        };
+        explorer.load_directory();
+        // Select index 0 (sentinel)
+        let result = explorer.select();
+        assert_eq!(result, Some(base));
+    }
+
+    #[test]
+    fn allow_dir_select_subdir_still_navigates() {
+        let base = setup_temp_fs();
+        let folder = base.join("folder");
+
+        let mut explorer = FileExplorer {
+            current_dir: base.clone(),
+            files: Vec::new(),
+            selected_index: 0,
+            allow_dir_select: true,
+        };
+        explorer.load_directory();
+
+        // Find and select the "folder" subdirectory entry.
+        let folder_idx = explorer
+            .files
+            .iter()
+            .position(|p| p == &folder)
+            .expect("folder entry must exist");
+        explorer.selected_index = folder_idx;
+        let result = explorer.select();
+
+        // Navigates into the subdir, does not return it.
+        assert!(result.is_none());
+        assert_eq!(explorer.current_dir, folder);
     }
 
     #[test]

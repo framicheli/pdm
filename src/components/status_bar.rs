@@ -94,11 +94,13 @@ impl StatusBar {
                         _ => false,
                     };
                     spans.extend(hint("↑↓", "Navigate"));
-                    if FIELDS
-                        .get(idx)
-                        .is_some_and(|f| f.1 == FieldKind::FilePicker)
-                    {
-                        spans.extend(hint("Enter", "Browse file"));
+                    if let Some(&(_, kind)) = FIELDS.get(idx) {
+                        let label = if matches!(kind, FieldKind::DirectoryPicker) {
+                            "Browse dir"
+                        } else {
+                            "Browse file"
+                        };
+                        spans.extend(hint("Enter", label));
                     }
                     if field_is_set {
                         spans.extend(hint("⌫", "Clear"));
@@ -258,8 +260,22 @@ mod tests {
         let mut app = App::new();
         app.current_screen = CurrentScreen::Settings;
         app.settings_view.sidebar_focused = false;
+        // field 0 is FilePicker
+        app.settings_view.selected_index = 0;
         let output = render_status_bar(&app);
         assert!(output.contains("Browse file"));
+        assert!(output.contains("Back"));
+    }
+
+    #[test]
+    fn settings_content_focused_dir_field_shows_browse_dir() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        // field 4 is DirectoryPicker
+        app.settings_view.selected_index = 4;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Browse dir"));
         assert!(output.contains("Back"));
     }
 
@@ -328,6 +344,16 @@ mod tests {
     }
 
     #[test]
+    fn settings_content_out_of_range_field_no_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 99;
+        let output = render_status_bar(&app);
+        assert!(!output.contains("Clear"));
+    }
+
+    #[test]
     fn settings_content_directory_override_field_set_shows_clear() {
         let mut app = App::new();
         app.current_screen = CurrentScreen::Settings;
@@ -336,26 +362,5 @@ mod tests {
         app.settings.settings_dir_override = Some(std::path::PathBuf::from("/custom/dir"));
         let output = render_status_bar(&app);
         assert!(output.contains("Clear"));
-    }
-
-    #[test]
-    fn settings_content_directory_input_field_no_browse_hint() {
-        let mut app = App::new();
-        app.current_screen = CurrentScreen::Settings;
-        app.settings_view.sidebar_focused = false;
-        app.settings_view.selected_index = 4; // settings_dir_override = DirectoryInput
-        let output = render_status_bar(&app);
-        assert!(!output.contains("Browse file"));
-        assert!(output.contains("Back"));
-    }
-
-    #[test]
-    fn settings_content_out_of_range_field_no_clear() {
-        let mut app = App::new();
-        app.current_screen = CurrentScreen::Settings;
-        app.settings_view.sidebar_focused = false;
-        app.settings_view.selected_index = 99;
-        let output = render_status_bar(&app);
-        assert!(!output.contains("Clear"));
     }
 }

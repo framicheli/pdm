@@ -17,19 +17,17 @@ pub const FIELD_COUNT: usize = 5;
 pub enum FieldKind {
     /// Opens a file-explorer dialog so the user can pick a file.
     FilePicker,
-    /// No file-explorer — the field is a plain directory path that cannot be
-    /// browsed with the built-in explorer (e.g. Settings directory override).
-    DirectoryInput,
+    /// Opens a file-explorer dialog in directory-selection mode.
+    DirectoryPicker,
 }
 
 /// All settings fields in display order.  Each entry is `(label, kind)`.
-/// The `kind` drives whether Enter opens a file-picker or is a no-op.
 pub const FIELDS: [(&str, FieldKind); FIELD_COUNT] = [
     ("Bitcoin config path", FieldKind::FilePicker),
     ("P2Pool config path", FieldKind::FilePicker),
     ("LN config path", FieldKind::FilePicker),
     ("Shares Market config path", FieldKind::FilePicker),
-    ("Settings directory override", FieldKind::DirectoryInput),
+    ("Settings directory", FieldKind::DirectoryPicker),
 ];
 
 #[derive(Debug, Clone)]
@@ -56,6 +54,7 @@ impl SettingsView {
             !self.sidebar_focused,
             "handle_input called while sidebar is focused"
         );
+
         match key.code {
             KeyCode::Up => {
                 if self.selected_index > 0 {
@@ -69,13 +68,7 @@ impl SettingsView {
                 }
                 AppAction::None
             }
-            KeyCode::Enter => {
-                if FIELDS[self.selected_index].1 == FieldKind::FilePicker {
-                    AppAction::OpenExplorerForSettings(self.selected_index)
-                } else {
-                    AppAction::None
-                }
-            }
+            KeyCode::Enter => AppAction::OpenExplorerForSettings(self.selected_index),
             KeyCode::Backspace => AppAction::ClearSettingsField(self.selected_index),
             KeyCode::Esc => {
                 self.sidebar_focused = true;
@@ -109,10 +102,10 @@ impl SettingsView {
                 .map(|p| p.to_string_lossy().into_owned()),
         ];
 
-        let items: Vec<ListItem> = FIELDS
-            .iter()
-            .zip(values.iter())
-            .map(|((label, _kind), val)| {
+        let items: Vec<ListItem> = (0..FIELD_COUNT)
+            .map(|idx| {
+                let (label, _kind) = FIELDS[idx];
+                let val = &values[idx];
                 let (display, style) = match val {
                     Some(v) => (
                         v.clone(),
@@ -120,13 +113,24 @@ impl SettingsView {
                             .fg(Color::White)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    None => (
-                        "(not set)".to_string(),
-                        Style::default().fg(Color::DarkGray),
-                    ),
+                    None => {
+                        if idx == 4 {
+                            let path = if app.config_dir.as_os_str().is_empty() {
+                                "(unknown)".to_string()
+                            } else {
+                                app.config_dir.to_string_lossy().into_owned()
+                            };
+                            (path, Style::default().fg(Color::DarkGray))
+                        } else {
+                            (
+                                "(not set)".to_string(),
+                                Style::default().fg(Color::DarkGray),
+                            )
+                        }
+                    }
                 };
                 ListItem::new(vec![
-                    Line::from(Span::styled(*label, Style::default().fg(Color::Gray))),
+                    Line::from(Span::styled(label, Style::default().fg(Color::Gray))),
                     Line::from(Span::styled(display, style)),
                 ])
             })
@@ -182,6 +186,7 @@ mod tests {
         let view = SettingsView::new();
         assert_eq!(view.selected_index, 0);
         assert!(view.sidebar_focused);
+        assert!(view.save_error.is_none());
     }
 
     #[test]
@@ -216,32 +221,15 @@ mod tests {
     }
 
     #[test]
-    fn browsing_enter_opens_explorer_for_file_picker_fields() {
+    fn browsing_enter_opens_explorer_for_all_fields() {
         let mut view = content_focused_view();
-        for (idx, (_, kind)) in FIELDS.iter().enumerate() {
-            if *kind == FieldKind::FilePicker {
-                view.selected_index = idx;
-                let action = view.handle_input(key(KeyCode::Enter));
-                assert!(
-                    matches!(action, AppAction::OpenExplorerForSettings(i) if i == idx),
-                    "expected OpenExplorerForSettings({idx})"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn browsing_enter_on_directory_input_is_noop() {
-        let mut view = content_focused_view();
-        for (idx, (_, kind)) in FIELDS.iter().enumerate() {
-            if *kind == FieldKind::DirectoryInput {
-                view.selected_index = idx;
-                let action = view.handle_input(key(KeyCode::Enter));
-                assert!(
-                    matches!(action, AppAction::None),
-                    "expected None for DirectoryInput field {idx}"
-                );
-            }
+        for idx in 0..FIELD_COUNT {
+            view.selected_index = idx;
+            let action = view.handle_input(key(KeyCode::Enter));
+            assert!(
+                matches!(action, AppAction::OpenExplorerForSettings(i) if i == idx),
+                "expected OpenExplorerForSettings({idx})"
+            );
         }
     }
 
@@ -304,5 +292,45 @@ mod tests {
             .collect();
 
         assert!(output.contains("bitcoin.conf") || output.contains("Settings"));
+        assert!(output.contains("custom") || output.contains("Settings directory"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn render_field4_shows_default_config_dir_when_no_override() {
+        use crate::app::App;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        // Point config dir to a known location so the test is deterministic.
+        // SAFETY: no concurrent mutation of PDM_CONFIG_DIR in this test.
+        unsafe { std::env::set_var("PDM_CONFIG_DIR", "/pdm/test-config") };
+
+        let mut app = App::new();
+        app.settings_view.sidebar_focused = false;
+        // settings_dir_override is None by default
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                SettingsView::render(f, &mut app, area);
+            })
+            .unwrap();
+
+        let output: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect();
+
+        unsafe { std::env::remove_var("PDM_CONFIG_DIR") };
+
+        assert!(
+            output.contains("/pdm/test-config"),
+            "default config dir must appear when no override is set"
+        );
     }
 }

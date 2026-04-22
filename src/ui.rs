@@ -231,12 +231,17 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_settings_screen_render() {
+        // Fix PDM_CONFIG_DIR so field 4 renders a deterministic path across platforms.
+        // SAFETY: serialised by #[serial] — no concurrent mutation of PDM_CONFIG_DIR.
+        unsafe { std::env::set_var("PDM_CONFIG_DIR", "/pdm/test-config") };
         let mut terminal = make_terminal();
         let mut app = App::new();
         app.sidebar_index = 8; // Settings
         app.toggle_menu();
         terminal.draw(|f| ui(f, &mut app)).unwrap();
+        unsafe { std::env::remove_var("PDM_CONFIG_DIR") };
         insta::assert_debug_snapshot!(terminal.backend());
     }
 }
