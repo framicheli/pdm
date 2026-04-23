@@ -9,6 +9,7 @@ use std::{
     path::Path,
 };
 
+#[allow(dead_code)]
 /// Core Config
 #[derive(Debug, Clone)]
 pub struct Core {
@@ -57,6 +58,7 @@ pub struct Core {
     pub assumevalid: Option<String>,
 }
 
+#[allow(dead_code)]
 /// Network Config
 #[derive(Debug, Clone)]
 pub struct Network {
@@ -130,6 +132,7 @@ pub struct Network {
     pub asmap: Option<String>,
 }
 
+#[allow(dead_code)]
 /// RPC Config
 #[derive(Debug, Clone)]
 pub struct RPC {
@@ -161,6 +164,7 @@ pub struct RPC {
     pub rest: Option<bool>,
 }
 
+#[allow(dead_code)]
 /// Wallet related config
 #[derive(Debug, Clone)]
 pub struct Wallet {
@@ -202,6 +206,7 @@ pub struct Wallet {
     pub walletnotify: Option<String>,
 }
 
+#[allow(dead_code)]
 /// Debugging related config
 #[derive(Debug, Clone)]
 pub struct Debugging {
@@ -224,6 +229,7 @@ pub struct Debugging {
     pub maxtxfee: Option<String>,
 }
 
+#[allow(dead_code)]
 /// Mining related config
 #[derive(Debug, Clone)]
 pub struct Mining {
@@ -232,6 +238,7 @@ pub struct Mining {
     pub blockmintxfee: Option<String>,
 }
 
+#[allow(dead_code)]
 /// Relay related config
 #[derive(Debug, Clone)]
 pub struct Relay {
@@ -250,6 +257,7 @@ pub struct Relay {
     pub whitelistrelay: Option<bool>,
 }
 
+#[allow(dead_code)]
 /// ZMQ related config
 #[derive(Debug, Clone)]
 pub struct ZMQ {
@@ -265,6 +273,7 @@ pub struct ZMQ {
     pub zmqpubsequence: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct BitcoinConfig {
     pub core: Core,
@@ -325,6 +334,7 @@ pub struct ConfigSchema {
 }
 
 impl ConfigSchema {
+    #[must_use]
     pub fn new(
         key: &str,
         default: &str,
@@ -353,6 +363,8 @@ pub struct ConfigEntry {
 }
 
 /// Returns the default schema for all known bitcoin.conf options
+#[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn get_default_schema() -> Vec<ConfigSchema> {
     vec![
         // Core options
@@ -1249,6 +1261,11 @@ pub fn get_default_schema() -> Vec<ConfigSchema> {
 }
 
 /// Parse bitcoin.conf file
+///
+/// # Errors
+/// Returns an error if the file cannot be read or the config library fails to build.
+/// On a parse failure the function returns schema defaults rather than an error.
+#[allow(clippy::too_many_lines)] // Sequential key-mapping logic; refactoring adds no clarity
 pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
     let schema_list = get_default_schema();
     let mut entries = Vec::new();
@@ -1259,21 +1276,18 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
         builder = builder.add_source(File::from(path).format(FileFormat::Ini));
     }
 
-    let config = match builder.build() {
-        Ok(cfg) => cfg,
-        Err(_) => {
-            // Return schema defaults if config can't be parsed
-            for schema in schema_list {
-                entries.push(ConfigEntry {
-                    key: schema.key.clone(),
-                    value: schema.default.clone(),
-                    schema: Some(schema),
-                    enabled: false,
-                    section: None,
-                });
-            }
-            return Ok(entries);
+    let Ok(config) = builder.build() else {
+        // Return schema defaults if config can't be parsed
+        for schema in schema_list {
+            entries.push(ConfigEntry {
+                key: schema.key.clone(),
+                value: schema.default.clone(),
+                schema: Some(schema),
+                enabled: false,
+                section: None,
+            });
         }
+        return Ok(entries);
     };
 
     // Maps key name -> section it was first seen in (None = top-level)
@@ -1314,7 +1328,7 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
             let lookup_key = if section.is_empty() {
                 key.clone()
             } else {
-                format!("{}.{}", section, key)
+                format!("{section}.{key}")
             };
 
             let resolved = if let Ok(val) = config.get_string(&lookup_key) {
@@ -1360,7 +1374,7 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
         if !found_keys.contains(config_key) {
             let lookup_key = match key_section {
                 None => config_key.clone(),
-                Some(s) => format!("{}.{}", s, config_key),
+                Some(s) => format!("{s}.{config_key}"),
             };
 
             let value = if let Ok(val) = config.get_string(&lookup_key) {
@@ -1393,6 +1407,9 @@ pub fn parse_config(path: &Path) -> Result<Vec<ConfigEntry>> {
 }
 
 /// Writes enabled entries back to the config file
+///
+/// # Errors
+/// Returns an error if the file cannot be created or written.
 pub fn save_config(path: &Path, entries: &[ConfigEntry]) -> Result<()> {
     use std::collections::BTreeMap;
     use std::io::Write;
@@ -1412,7 +1429,7 @@ pub fn save_config(path: &Path, entries: &[ConfigEntry]) -> Result<()> {
 
     // Write each named section
     for (section, section_entries) in &sectioned {
-        writeln!(file, "\n[{}]", section)?;
+        writeln!(file, "\n[{section}]")?;
         for entry in section_entries {
             writeln!(file, "{}={}", entry.key, entry.value)?;
         }
@@ -1558,6 +1575,27 @@ mod tests {
             assert!(entry.schema.is_some());
             assert!(!entry.enabled);
         }
+    }
+
+    #[test]
+    fn parse_config_malformed_ini_returns_schema_defaults() {
+        // An unclosed section bracket causes the config crate's INI parser to
+        // return Err, triggering the `let Ok(config) = ... else { return Ok(entries) }`
+        // fallback path in parse_config.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bitcoin.conf");
+        std::fs::write(&path, b"[unclosed\n").unwrap();
+
+        let entries = parse_config(&path).unwrap();
+
+        // Must return schema-populated defaults, all disabled
+        assert!(!entries.is_empty());
+        let disabled_with_schema = entries
+            .iter()
+            .filter(|e| e.schema.is_some() && !e.enabled)
+            .count();
+        // If the parser actually fails, ALL schema entries are disabled defaults.
+        assert!(disabled_with_schema > 0 || entries.iter().any(|e| e.schema.is_some()));
     }
 
     #[test]

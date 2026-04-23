@@ -12,6 +12,7 @@ use ratatui::{
 pub struct HomeView;
 
 impl HomeView {
+    #[must_use]
     pub fn new() -> Self {
         Self
     }

@@ -10,27 +10,26 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::path::Path;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// Shortens a path to fit within `max_len` Unicode scalar values (terminal columns)
-fn shorten_path(path: &Path, max_len: usize) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
+/// Shortens a path to fit within `max_len` display columns.
+fn shorten_path(path: &Path, max_len: usize, home: &str) -> String {
     let full = path.to_string_lossy().into_owned();
 
-    let s = if !home.is_empty() && full.starts_with(&home) {
-        format!("~{}", full.strip_prefix(&home).unwrap_or(&full))
+    let s = if !home.is_empty() && full.starts_with(home) {
+        format!("~{}", full.strip_prefix(home).unwrap_or(&full))
     } else {
         full
     };
 
-    if s.chars().count() <= max_len {
+    if s.width() <= max_len {
         return s;
     }
 
     let p = Path::new(&s);
     let filename = p
         .file_name()
-        .map(|f| f.to_string_lossy().into_owned())
-        .unwrap_or_else(|| s.clone());
+        .map_or_else(|| s.clone(), |f| f.to_string_lossy().into_owned());
     let parent_name = p
         .parent()
         .and_then(|p| p.file_name())
@@ -39,23 +38,33 @@ fn shorten_path(path: &Path, max_len: usize) -> String {
 
     // Try ~/…/parent/filename
     if let Some(ref parent) = parent_name {
-        let candidate = format!("{}/\u{2026}/{}/{}", prefix, parent, filename);
-        if candidate.chars().count() <= max_len {
+        let candidate = format!("{prefix}/\u{2026}/{parent}/{filename}");
+        if candidate.width() <= max_len {
             return candidate;
         }
     }
 
     // Try ~/…/filename
-    let candidate = format!("{}/\u{2026}/{}", prefix, filename);
-    if candidate.chars().count() <= max_len {
+    let candidate = format!("{prefix}/\u{2026}/{filename}");
+    if candidate.width() <= max_len {
         return candidate;
     }
 
-    // Truncate the right side on character boundaries
-    let avail = max_len.saturating_sub(1);
-    let total_chars = s.chars().count();
-    let suffix: String = s.chars().skip(total_chars.saturating_sub(avail)).collect();
-    format!("\u{2026}{}", suffix)
+    // Truncate from the left, respecting display column width
+    let avail = max_len.saturating_sub(1); // 1 column for "…"
+    let mut width_acc = 0usize;
+    let mut suffix_chars: Vec<char> = Vec::new();
+    for c in s.chars().rev() {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(1);
+        if width_acc + cw > avail {
+            break;
+        }
+        width_acc += cw;
+        suffix_chars.push(c);
+    }
+    suffix_chars.reverse();
+    let suffix: String = suffix_chars.into_iter().collect();
+    format!("\u{2026}{suffix}")
 }
 
 #[derive(Debug, Clone)]
@@ -66,11 +75,12 @@ pub struct BitcoinConfigView {
     pub save_message: Option<String>,
     pub warning_message: Option<String>,
     pub sidebar_focused: bool,
-    /// True when entries have been committed (via CommitEdit) but not yet saved to disk.
+    /// True when entries have been committed (via `CommitEdit`) but not yet saved to disk.
     pub dirty: bool,
 }
 
 impl BitcoinConfigView {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             selected_index: 0,
@@ -127,7 +137,8 @@ impl BitcoinConfigView {
                 }
                 KeyCode::Enter => {
                     if !entries.is_empty() {
-                        self.edit_input = entries[self.selected_index].value.clone();
+                        self.edit_input
+                            .clone_from(&entries[self.selected_index].value);
                         self.editing = true;
                         self.save_message = None;
                     }
@@ -144,7 +155,9 @@ impl BitcoinConfigView {
         }
     }
 
+    #[allow(clippy::too_many_lines)] // Renders two panels with multiple layout passes
     pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
+        const FIXED: usize = 33;
         if app.bitcoin_conf_path.is_none() {
             let p = Paragraph::new("Press [Enter] to select a bitcoin.conf file").block(
                 Block::default()
@@ -165,11 +178,7 @@ impl BitcoinConfigView {
             .bitcoin_data
             .iter()
             .map(|entry| {
-                let label = entry
-                    .schema
-                    .as_ref()
-                    .map(|s| s.description.as_str())
-                    .unwrap_or("");
+                let label = entry.schema.as_ref().map_or("", |s| s.description.as_str());
 
                 let (value_display, value_style) = if entry.enabled {
                     (
@@ -183,10 +192,12 @@ impl BitcoinConfigView {
                         .schema
                         .as_ref()
                         .filter(|s| !s.default.is_empty())
-                        .map(|s| format!("default: {}", s.default))
-                        .unwrap_or_else(|| "not set".to_string());
+                        .map_or_else(
+                            || "not set".to_string(),
+                            |s| format!("default: {}", s.default),
+                        );
                     (
-                        format!("({})", placeholder),
+                        format!("({placeholder})"),
                         Style::default().fg(Color::DarkGray),
                     )
                 };
@@ -215,13 +226,12 @@ impl BitcoinConfigView {
         };
 
         let dirty = app.bitcoin_config_view.dirty;
-        const FIXED: usize = 33;
         let path_max = (panels[0].width as usize).saturating_sub(FIXED);
         let title = match &app.bitcoin_conf_path {
             Some(path) => format!(
                 " {}Bitcoin Configuration --- {} ",
                 if dirty { "● " } else { "" },
-                shorten_path(path, path_max)
+                shorten_path(path, path_max, &app.home_dir)
             ),
             None => " Bitcoin Configuration ".to_string(),
         };
@@ -259,8 +269,7 @@ impl BitcoinConfigView {
             let description = entry
                 .schema
                 .as_ref()
-                .map(|s| s.description.as_str())
-                .unwrap_or("Unknown option");
+                .map_or("Unknown option", |s| s.description.as_str());
             let type_label = entry
                 .schema
                 .as_ref()
@@ -284,7 +293,7 @@ impl BitcoinConfigView {
                 rows[0],
             );
             f.render_widget(
-                Paragraph::new(format!("Type: {}", type_label))
+                Paragraph::new(format!("Type: {type_label}"))
                     .style(Style::default().fg(Color::Gray)),
                 rows[1],
             );
@@ -300,8 +309,9 @@ impl BitcoinConfigView {
                         .style(Style::default().fg(Color::Yellow)),
                     rows[4],
                 );
-                let cursor_x = (rows[4].x + 1 + edit_input.chars().count() as u16)
-                    .min(rows[4].x + rows[4].width.saturating_sub(2));
+                let cursor_x =
+                    (rows[4].x + 1 + u16::try_from(edit_input.chars().count()).unwrap_or(u16::MAX))
+                        .min(rows[4].x + rows[4].width.saturating_sub(2));
                 let cursor_y = rows[4].y + 1;
                 f.set_cursor_position((cursor_x, cursor_y));
             } else {
@@ -317,10 +327,12 @@ impl BitcoinConfigView {
                         .schema
                         .as_ref()
                         .filter(|s| !s.default.is_empty())
-                        .map(|s| format!("default: {}", s.default))
-                        .unwrap_or_else(|| "not set".to_string());
+                        .map_or_else(
+                            || "not set".to_string(),
+                            |s| format!("default: {}", s.default),
+                        );
                     (
-                        format!("({})", placeholder),
+                        format!("({placeholder})"),
                         Style::default().fg(Color::DarkGray),
                     )
                 };
@@ -367,16 +379,16 @@ mod tests {
     #[test]
     fn shorten_path_short_enough_unchanged() {
         let p = Path::new("/foo/bar.conf");
-        assert_eq!(shorten_path(p, 100), "/foo/bar.conf");
+        assert_eq!(shorten_path(p, 100, ""), "/foo/bar.conf");
     }
 
     #[test]
     fn shorten_path_collapses_to_parent_filename() {
         // Path with no HOME prefix, long enough to trigger collapse
         let p = Path::new("/a/very/long/path/to/parent/file.conf");
-        let result = shorten_path(p, 20);
+        let result = shorten_path(p, 20, "");
         assert!(result.contains("file.conf"));
-        assert!(result.chars().count() <= 20);
+        assert!(result.width() <= 20);
     }
 
     #[test]
@@ -384,30 +396,29 @@ mod tests {
         // Parent/filename still too long → ~/…/filename
         let long_parent = "/a/b/c/d/longlonglonglongparent/file.conf";
         let p = Path::new(long_parent);
-        let result = shorten_path(p, 18);
+        let result = shorten_path(p, 18, "");
         assert!(result.contains("file.conf"));
-        assert!(result.chars().count() <= 18);
+        assert!(result.width() <= 18);
     }
 
     #[test]
     fn shorten_path_last_resort_truncation() {
         // Even filename alone doesn't fit → truncate with ellipsis
         let p = Path::new("/a/b/c/d/e/verylongfilename.conf");
-        let result = shorten_path(p, 5);
+        let result = shorten_path(p, 5, "");
         assert!(result.starts_with('\u{2026}'));
-        assert!(result.chars().count() <= 5);
+        assert!(result.width() <= 5);
     }
 
     #[test]
     fn shorten_path_multibyte_chars_respected() {
-        // Each of these chars is 3 bytes but 1 column; byte-length checks would fail here
         let p = Path::new("/日本語/パス/ファイル.conf");
-        let result = shorten_path(p, 15);
-        // Must not exceed 15 columns regardless of byte width
+        let result = shorten_path(p, 15, "");
+        // Must not exceed 15 display columns regardless of byte/char width
         assert!(
-            result.chars().count() <= 15,
-            "got {} chars: {}",
-            result.chars().count(),
+            result.width() <= 15,
+            "got {} columns: {}",
+            result.width(),
             result
         );
     }
@@ -419,7 +430,7 @@ mod tests {
             return; // skip on systems without HOME
         }
         let p = Path::new(&home).join("myfile.conf");
-        let result = shorten_path(&p, 200);
+        let result = shorten_path(&p, 200, &home);
         assert!(
             result.starts_with('~'),
             "expected ~ prefix, got: {}",
@@ -635,5 +646,60 @@ mod tests {
 
         view.handle_input(key(KeyCode::F(1)), &entries);
         assert_eq!(view.save_message.as_deref(), Some("saved"));
+    }
+
+    #[test]
+    fn render_with_entries_exercises_items_loop() {
+        use crate::app::App;
+        use crate::bitcoin_config::{ConfigCategory, ConfigSchema, ConfigType};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut app = App::new();
+        // Set a path so render goes past the early-return guard
+        app.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+
+        // One enabled entry
+        let mut e1 = entry("rpcuser", "alice", true);
+        e1.schema = Some(ConfigSchema::new(
+            "rpcuser",
+            "",
+            ConfigType::String,
+            ConfigCategory::RPC,
+            "RPC username",
+        ));
+
+        // One disabled entry with schema
+        let mut e2 = entry("dbcache", "450", false);
+        e2.schema = Some(ConfigSchema::new(
+            "dbcache",
+            "450",
+            ConfigType::Int,
+            ConfigCategory::Core,
+            "DB cache size",
+        ));
+
+        // One disabled entry with no schema
+        let e3 = entry("unknownkey", "", false);
+
+        app.bitcoin_data = vec![e1, e2, e3];
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                BitcoinConfigView::render(f, &mut app, area);
+            })
+            .unwrap();
+
+        let output: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol().to_string())
+            .collect();
+
+        assert!(output.contains("Bitcoin Configuration"));
     }
 }
