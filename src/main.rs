@@ -1450,4 +1450,194 @@ port = 46884
         // A successful save clears the error
         assert!(app.settings_view.save_error.is_none());
     }
+
+    #[test]
+    fn commit_p2pool_edit_success_clears_warning() {
+        use std::path::PathBuf;
+
+        let mut app = App::new();
+        let path = PathBuf::from("dummy.toml");
+        write_valid_p2pool_toml(&path);
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("p2pool.toml");
+        write_valid_p2pool_toml(&file);
+
+        let cfg = P2PoolConfig::load(file.to_str().unwrap()).unwrap();
+        app.p2pool_config = Some(cfg);
+        app.p2pool_config_view.warning_message = Some("old warning".to_string());
+
+        run(
+            AppAction::CommitP2PoolEdit(0, "/ip4/127.0.0.1/tcp/9999".to_string()),
+            &mut app,
+        );
+
+        assert!(app.p2pool_config_view.warning_message.is_none());
+    }
+
+    #[test]
+    fn commit_p2pool_edit_failure_sets_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("p2pool.toml");
+        write_valid_p2pool_toml(&file);
+
+        let mut app = App::new();
+        let cfg = P2PoolConfig::load(file.to_str().unwrap()).unwrap();
+        app.p2pool_config = Some(cfg);
+
+        // invalid numeric/bool/etc depending on index used by your flatten_config
+        run(
+            AppAction::CommitP2PoolEdit(9999, "bad-value".to_string()),
+            &mut app,
+        );
+
+        assert!(app.p2pool_config_view.warning_message.is_some());
+    }
+
+    #[test]
+    fn save_p2pool_config_action_success_sets_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("p2pool.toml");
+        write_valid_p2pool_toml(&file);
+
+        let mut app = App::new();
+        let cfg = P2PoolConfig::load(file.to_str().unwrap()).unwrap();
+
+        app.p2pool_conf_path = Some(file.clone());
+        app.p2pool_config = Some(cfg);
+
+        run(AppAction::SaveP2PoolConfig, &mut app);
+
+        assert_eq!(
+            app.p2pool_config_view.save_message.as_deref(),
+            Some("Configuration correctly saved")
+        );
+    }
+
+    #[test]
+    fn save_p2pool_config_action_failure_sets_warning() {
+        let mut app = App::new();
+
+        let bad_path = std::path::PathBuf::from("/definitely/missing/path.toml");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("p2pool.toml");
+        write_valid_p2pool_toml(&file);
+        let cfg = P2PoolConfig::load(file.to_str().unwrap()).unwrap();
+
+        app.p2pool_conf_path = Some(bad_path);
+        app.p2pool_config = Some(cfg);
+
+        run(AppAction::SaveP2PoolConfig, &mut app);
+
+        assert!(app.p2pool_config_view.warning_message.is_some());
+    }
+
+    #[test]
+    fn typed_toml_item_like_integer_success() {
+        let existing = toml_edit::value(3333);
+        let updated = typed_toml_item_like(&existing, "4444").unwrap();
+        assert_eq!(updated.as_integer(), Some(4444));
+    }
+
+    #[test]
+    fn typed_toml_item_like_float_success() {
+        let existing = toml_edit::value(1.5);
+        let updated = typed_toml_item_like(&existing, "2.5").unwrap();
+        assert_eq!(updated.as_float(), Some(2.5));
+    }
+
+    #[test]
+    fn typed_toml_item_like_bool_success() {
+        let existing = toml_edit::value(true);
+        let updated = typed_toml_item_like(&existing, "false").unwrap();
+        assert_eq!(updated.as_bool(), Some(false));
+    }
+
+    #[test]
+    fn typed_toml_item_like_string_success() {
+        let existing = toml_edit::value("old");
+        let updated = typed_toml_item_like(&existing, "new").unwrap();
+        assert_eq!(updated.as_str(), Some("new"));
+    }
+
+    #[test]
+    fn typed_toml_item_like_invalid_parse_fails() {
+        let existing = toml_edit::value(true);
+        assert!(typed_toml_item_like(&existing, "not_bool").is_err());
+
+        let existing = toml_edit::value(1);
+        assert!(typed_toml_item_like(&existing, "abc").is_err());
+    }
+
+    #[test]
+    fn save_p2pool_config_missing_file_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let valid = dir.path().join("valid.toml");
+        write_valid_p2pool_toml(&valid);
+        let cfg = P2PoolConfig::load(valid.to_str().unwrap()).unwrap();
+
+        let missing = dir.path().join("missing.toml");
+        let result = save_p2pool_config(&missing, &cfg);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn save_p2pool_config_invalid_toml_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("bad.toml");
+        std::fs::write(&file, "not valid toml = = =").unwrap();
+
+        let valid = dir.path().join("valid.toml");
+        write_valid_p2pool_toml(&valid);
+        let cfg = P2PoolConfig::load(valid.to_str().unwrap()).unwrap();
+
+        let result = save_p2pool_config(&file, &cfg);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn file_selected_p2pool_invalid_hostname_sets_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("p2pool.toml");
+        write_empty_hostname_toml(&file);
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(ExplorerTrigger::P2PoolConfig);
+
+        run(AppAction::FileSelected(file), &mut app);
+
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        assert!(app.p2pool_conf_path.is_none());
+        assert!(app.p2pool_config.is_none());
+    }
+
+    #[test]
+    fn file_selected_p2pool_parse_failure_sets_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("bad.toml");
+        std::fs::write(&file, "invalid === toml").unwrap();
+
+        let mut app = App::new();
+        app.explorer_trigger = Some(ExplorerTrigger::P2PoolConfig);
+
+        run(AppAction::FileSelected(file), &mut app);
+
+        assert!(app.p2pool_config_view.warning_message.is_some());
+        assert!(app.p2pool_conf_path.is_none());
+    }
+
+    #[test]
+    fn bootstrap_from_settings_invalid_p2pool_keeps_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("bad.toml");
+        std::fs::write(&file, "invalid === toml").unwrap();
+
+        let mut app = App::new();
+        app.settings.p2pool_conf_path = Some(file);
+
+        bootstrap_from_settings(&mut app);
+
+        assert!(app.p2pool_conf_path.is_none());
+        assert!(app.p2pool_config.is_none());
+    }
 }
