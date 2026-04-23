@@ -9,8 +9,8 @@ use pdm::app::{
 use pdm::bitcoin_config::{
     parse_config as parse_bitcoin_config, save_config as save_bitcoin_config,
 };
-use pdm::p2poolv2_config::{apply_edit as apply_p2pool_edit, flatten_config};
 use pdm::components::settings_view::{FIELDS, FieldKind};
+use pdm::p2poolv2_config::{apply_edit as apply_p2pool_edit, flatten_config};
 use pdm::settings::{load_settings, save_settings};
 use pdm::ui;
 use std::ops::ControlFlow;
@@ -133,6 +133,38 @@ where
                     }
                 }
 
+                // P2Pool config
+                CurrentScreen::P2PoolConfig => {
+                    if app.p2pool_conf_path.is_some() {
+                        if app.p2pool_config_view.sidebar_focused {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    app.p2pool_config_view.sidebar_focused = false;
+                                    AppAction::None
+                                }
+                                k => sidebar_nav(k, app),
+                            }
+                        } else {
+                            // Build flat entry list and delegate to the view
+                            let entries = app
+                                .p2pool_config
+                                .as_ref()
+                                .map(|cfg| flatten_config(cfg))
+                                .unwrap_or_default();
+                            app.p2pool_config_view.handle_input(key, &entries)
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Enter => {
+                                app.p2pool_config_view.warning_message = None;
+                                AppAction::OpenExplorer(ExplorerTrigger::P2PoolConfig)
+                            }
+                            KeyCode::Esc => AppAction::CloseModal,
+                            k => sidebar_nav(k, app),
+                        }
+                    }
+                }
+
                 CurrentScreen::Settings => {
                     if app.settings_view.sidebar_focused {
                         match key.code {
@@ -178,13 +210,19 @@ fn bootstrap_from_settings(app: &mut App) {
         }
     }
 
-    // P2Pool config
-    if let Some(path) = &app.settings.p2pool_conf_path {
-        app.p2pool_conf_path = Some(path.clone());
-        if let Some(p) = path.to_str()
-            && let Ok(cfg) = P2PoolConfig::load(p)
-        {
-            app.p2pool_config = Some(cfg);
+    // P2Pool config — only set the path when the config is actually loadable
+    if let Some(path) = &app.settings.p2pool_conf_path.clone() {
+        if let Some(p) = path.to_str() {
+            match P2PoolConfig::load(p) {
+                Ok(cfg) => {
+                    app.p2pool_conf_path = Some(path.clone());
+                    app.p2pool_config = Some(cfg);
+                }
+                Err(e) => {
+                    eprintln!("pdm: failed to load p2pool config on startup: {e}");
+                    // Leave both as None so the view prompts the user to re-select
+                }
+            }
         }
     }
 }
@@ -228,11 +266,34 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
             if let Some(trigger) = app.explorer_trigger.take() {
                 match trigger {
                     ExplorerTrigger::P2PoolConfig => {
-                        app.p2pool_conf_path = Some(path.clone());
-                        if let Some(p) = path.to_str()
-                            && let Ok(cfg) = P2PoolConfig::load(p)
-                        {
-                            app.p2pool_config = Some(cfg);
+                        match P2PoolConfig::load(path.to_str().unwrap_or_default()) {
+                            Ok(cfg) => {
+                                // Sanity check — a valid p2pool config must have
+                                // a stratum section with at least a hostname
+
+                                if cfg.stratum.hostname.is_empty() {
+                                    app.p2pool_config_view.warning_message = Some(
+                                        "Config loaded but appears invalid: stratum.hostname is empty. Select another file."
+                                            .to_string(),
+                                    );
+                                    app.p2pool_conf_path = None;
+                                    app.p2pool_config = None;
+                                } else {
+                                    app.p2pool_conf_path = Some(path.clone());
+                                    app.p2pool_config = Some(cfg);
+                                    app.p2pool_config_view.sidebar_focused = false;
+                                    app.p2pool_config_view.warning_message = None;
+                                    app.p2pool_config_view.selected_index = 0;
+                                }
+                            }
+                            Err(e) => {
+                                app.p2pool_config_view.warning_message = Some(format!(
+                                    "Failed to load P2Pool config: {}. Select another file.",
+                                    e
+                                ));
+                                app.p2pool_conf_path = None;
+                                app.p2pool_config = None;
+                            }
                         }
                         app.current_screen = CurrentScreen::P2PoolConfig;
                         app.settings.p2pool_conf_path = Some(path.clone());
@@ -310,15 +371,28 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
                                     should_save = false;
                                 }
                             },
-                            1 => {
-                                app.p2pool_conf_path = Some(path.clone());
-                                if let Some(p) = path.to_str()
-                                    && let Ok(cfg) = P2PoolConfig::load(p)
-                                {
-                                    app.p2pool_config = Some(cfg);
+                            1 => match P2PoolConfig::load(path.to_str().unwrap_or_default()) {
+                                Ok(cfg) => {
+                                    if cfg.stratum.hostname.is_empty() {
+                                        app.settings_view.save_error = Some(
+                                            "Config appears invalid: stratum.hostname is empty."
+                                                .to_string(),
+                                        );
+                                        should_save = false;
+                                    } else {
+                                        app.p2pool_config = Some(cfg);
+                                        app.settings.p2pool_conf_path = Some(path.clone());
+                                        app.p2pool_config_view.warning_message = None;
+                                        app.p2pool_config_view.selected_index = 0;
+                                        app.settings.p2pool_conf_path = Some(path.clone());
+                                    }
                                 }
-                                app.settings.p2pool_conf_path = Some(path.clone());
-                            }
+                                Err(e) => {
+                                    app.settings_view.save_error =
+                                        Some(format!("Failed to load P2Pool config: {}", e));
+                                    should_save = false;
+                                }
+                            },
                             2 => app.settings.ln_conf_path = Some(path.clone()),
                             3 => app.settings.shares_market_conf_path = Some(path.clone()),
                             4 => app.settings.settings_dir_override = Some(path.clone()),
@@ -380,12 +454,40 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
                 app.settings_view.save_error = Some(format!("Save failed: {e}"));
             }
         }
+        AppAction::CommitP2PoolEdit(index, value) => {
+            if let Some(cfg) = app.p2pool_config.as_mut() {
+                match apply_p2pool_edit(cfg, index, &value) {
+                    Ok(()) => {
+                        app.p2pool_config_view.warning_message = None;
+                    }
+                    Err(e) => {
+                        app.p2pool_config_view.warning_message = Some(e);
+                    }
+                }
+            }
+        }
+
+        AppAction::SaveP2PoolConfig => {
+            if let (Some(path), Some(cfg)) =
+                (app.p2pool_conf_path.clone(), app.p2pool_config.as_ref())
+            {
+                match save_p2pool_config(&path, cfg) {
+                    Ok(()) => {
+                        app.p2pool_config_view.save_message =
+                            Some("Configuration correctly saved".to_string());
+                    }
+                    Err(e) => {
+                        app.p2pool_config_view.warning_message =
+                            Some(format!("Save failed: {}", e));
+                    }
+                }
+            }
+        }
 
         AppAction::None => {}
     }
 
     Ok(ControlFlow::Continue(()))
-    Ok(false)
 }
 
 /// Matches the TOML type of an existing item and parses the new string
@@ -1119,7 +1221,7 @@ port = 46884
         // Write a minimal but syntactically valid TOML file; P2PoolConfig::load
         // may fail to parse it, but bootstrap_from_settings should at least set
         // app.p2pool_conf_path regardless of whether the config is parseable.
-        std::fs::write(&path, "").unwrap();
+        let cfg = write_valid_p2pool_toml(&path);
 
         let mut app = App::new();
         app.settings.p2pool_conf_path = Some(path.clone());
@@ -1159,7 +1261,7 @@ port = 46884
         let dir = tempdir().unwrap();
         redirect_saves_to(&dir);
         let path = dir.path().join("p2pool.toml");
-        std::fs::write(&path, "").unwrap();
+        let cfg = write_valid_p2pool_toml(&path);
 
         let mut app = App::new();
         app.explorer_trigger = Some(ExplorerTrigger::Settings(1));
