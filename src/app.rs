@@ -134,6 +134,12 @@ impl App {
             self.bitcoin_config_view.editing = false;
             self.bitcoin_config_view.edit_input.clear();
         }
+        if self.current_screen == CurrentScreen::P2PoolConfig {
+            self.p2pool_config_view.warning_message = None;
+            self.p2pool_config_view.save_message = None;
+            self.p2pool_config_view.editing = false;
+            self.p2pool_config_view.edit_input.clear();
+        }
         if let Some(&(_, screen)) = SIDEBAR_ITEMS.get(self.sidebar_index) {
             self.current_screen = screen;
         }

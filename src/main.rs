@@ -78,9 +78,12 @@ where
 
             // Ctrl-C is always a hard exit.
             // 'q' is suppressed while a text-input field is active.
-            let text_input_active = app.current_screen == CurrentScreen::BitcoinConfig
+            let text_input_active = (app.current_screen == CurrentScreen::BitcoinConfig
                 && !app.bitcoin_config_view.sidebar_focused
-                && app.bitcoin_config_view.editing;
+                && app.bitcoin_config_view.editing)
+                || (app.current_screen == CurrentScreen::P2PoolConfig
+                    && !app.p2pool_config_view.sidebar_focused
+                    && app.p2pool_config_view.editing);
 
             if (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'))
                 || (!text_input_active && key.code == KeyCode::Char('q'))
@@ -179,16 +182,7 @@ where
                     }
                 }
 
-                _ => match key.code {
-                    KeyCode::Enter => {
-                        if matches!(app.current_screen, CurrentScreen::P2PoolConfig) {
-                            AppAction::OpenExplorer(ExplorerTrigger::P2PoolConfig)
-                        } else {
-                            AppAction::None
-                        }
-                    }
-                    k => sidebar_nav(k, app),
-                },
+                _ => sidebar_nav(key.code, app),
             };
 
             if handle_action(action, app)?.is_break() {
@@ -279,11 +273,18 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
                                     app.p2pool_conf_path = None;
                                     app.p2pool_config = None;
                                 } else {
+                                    // Only set path + persist settings when config is actually valid
                                     app.p2pool_conf_path = Some(path.clone());
                                     app.p2pool_config = Some(cfg);
                                     app.p2pool_config_view.sidebar_focused = false;
                                     app.p2pool_config_view.warning_message = None;
                                     app.p2pool_config_view.selected_index = 0;
+                                    app.settings.p2pool_conf_path = Some(path.clone());
+                                    app.settings_view.save_error = None;
+                                    if let Err(e) = save_settings(&app.settings) {
+                                        app.settings_view.save_error =
+                                            Some(format!("Save failed: {e}"));
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -296,11 +297,6 @@ fn handle_action(action: AppAction, app: &mut App) -> Result<ControlFlow<()>> {
                             }
                         }
                         app.current_screen = CurrentScreen::P2PoolConfig;
-                        app.settings.p2pool_conf_path = Some(path.clone());
-                        app.settings_view.save_error = None;
-                        if let Err(e) = save_settings(&app.settings) {
-                            app.settings_view.save_error = Some(format!("Save failed: {e}"));
-                        }
                     }
                     ExplorerTrigger::BitcoinConfig => match parse_bitcoin_config(&path) {
                         Ok(entries) => {
@@ -511,6 +507,19 @@ fn typed_toml_item_like(existing: &toml_edit::Item, new_value: &str) -> Result<t
         Ok(toml_edit::value(parsed))
     } else if existing.as_str().is_some() {
         Ok(toml_edit::value(new_value.to_owned()))
+    } else if existing.as_array().is_some() {
+        let values: Vec<String> = new_value
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+
+        let mut new_arr = toml_edit::Array::default();
+        for value in values {
+            new_arr.push(value);
+        }
+        Ok(toml_edit::Item::Value(toml_edit::Value::Array(new_arr)))
     } else {
         Err(anyhow::anyhow!(
             "Unsupported TOML value type for key: {}",
