@@ -8,8 +8,8 @@ use crate::components::{
     bitcoin_config_view::BitcoinConfigView, bitcoin_status_view::BitcoinStatusView,
     file_explorer::FileExplorer, home_view::HomeView, ln_config_view::LNConfigView,
     ln_status_view::LNStatusView, p2pool_config_view::P2PoolConfigView,
-    p2pool_status_view::P2PoolStatusView, shares_market_view::SharesMarketView,
-    status_bar::StatusBar,
+    p2pool_status_view::P2PoolStatusView, settings_view::SettingsView,
+    shares_market_view::SharesMarketView, status_bar::StatusBar,
 };
 use ratatui::{
     prelude::*,
@@ -47,8 +47,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     state.select(Some(app.sidebar_index));
 
     // Dim the sidebar when the user has moved focus into a content panel
-    let sidebar_focused = !matches!(app.current_screen, CurrentScreen::BitcoinConfig)
-        || app.bitcoin_config_view.sidebar_focused;
+    let sidebar_focused = match app.current_screen {
+        CurrentScreen::BitcoinConfig => app.bitcoin_config_view.sidebar_focused,
+        CurrentScreen::Settings => app.settings_view.sidebar_focused,
+        _ => true,
+    };
     let sidebar_border_style = if sidebar_focused {
         Style::default()
     } else {
@@ -96,6 +99,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         }
         CurrentScreen::FileExplorer => {
             FileExplorer::render(f, app, main_area);
+        }
+        CurrentScreen::Settings => {
+            SettingsView::render(f, app, main_area);
         }
     }
 
@@ -221,6 +227,21 @@ mod tests {
         app.sidebar_index = 7;
         app.toggle_menu();
         terminal.draw(|f| ui(f, &mut app)).unwrap();
+        insta::assert_debug_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_settings_screen_render() {
+        // Fix PDM_CONFIG_DIR so field 4 renders a deterministic path across platforms.
+        // SAFETY: serialised by #[serial] — no concurrent mutation of PDM_CONFIG_DIR.
+        unsafe { std::env::set_var("PDM_CONFIG_DIR", "/pdm/test-config") };
+        let mut terminal = make_terminal();
+        let mut app = App::new();
+        app.sidebar_index = 8; // Settings
+        app.toggle_menu();
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+        unsafe { std::env::remove_var("PDM_CONFIG_DIR") };
         insta::assert_debug_snapshot!(terminal.backend());
     }
 }

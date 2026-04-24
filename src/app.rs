@@ -5,6 +5,9 @@
 use crate::bitcoin_config::ConfigEntry as BitcoinEntry;
 use crate::components::bitcoin_config_view::BitcoinConfigView;
 use crate::components::file_explorer::FileExplorer;
+use crate::components::p2pool_config_view::P2PoolConfigView;
+use crate::components::settings_view::SettingsView;
+use crate::settings::Settings;
 use p2poolv2_config::Config as P2PoolConfig;
 use std::path::PathBuf;
 
@@ -18,6 +21,7 @@ pub const SIDEBAR_ITEMS: &[(&str, CurrentScreen)] = &[
     ("LN Config", CurrentScreen::LNConfig),
     ("LN Status", CurrentScreen::LNStatus),
     ("Shares Market", CurrentScreen::SharesMarket),
+    ("Settings", CurrentScreen::Settings),
 ];
 
 pub const MAX_SIDEBAR_INDEX: usize = SIDEBAR_ITEMS.len() - 1;
@@ -38,6 +42,16 @@ pub enum CurrentScreen {
     LNStatus,
     SharesMarket,
     FileExplorer,
+    Settings,
+}
+
+/// Identifies which screen (and optionally which field) triggered the file explorer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExplorerTrigger {
+    BitcoinConfig,
+    P2PoolConfig,
+    /// The `usize` is the settings field index (0–`FIELD_COUNT - 1`).
+    Settings(usize),
 }
 
 /// Actions that components (Explorer, Editors) can trigger.
@@ -48,8 +62,8 @@ pub enum AppAction {
     Quit,
     ToggleMenu,
     Navigate(CurrentScreen),
-    // Triggers the file explorer for a specific screen
-    OpenExplorer(CurrentScreen),
+    // Triggers the file explorer; the trigger identifies the caller
+    OpenExplorer(ExplorerTrigger),
     // Returned by the Explorer when user picks a file
     FileSelected(PathBuf),
     // Closes the explorer without selection
@@ -58,22 +72,40 @@ pub enum AppAction {
     CommitEdit(usize, String),
     // Saves bitcoin config to disk
     SaveBitcoinConfig,
+    /// Commits an edited p2pool config value: (entry index, new value)
+    CommitP2PoolEdit(usize, String),
+    /// Saves p2pool config to disk
+    SaveP2PoolConfig,
+    // Open the file explorer to pick a path for a settings field (field index)
+    OpenExplorerForSettings(usize),
+    // Clear a settings field by index, setting it back to None
+    ClearSettingsField(usize),
 }
 
 pub struct App {
     pub current_screen: CurrentScreen,
     pub sidebar_index: usize,
-    pub explorer_trigger: Option<CurrentScreen>,
+    pub explorer_trigger: Option<ExplorerTrigger>,
     pub bitcoin_conf_path: Option<PathBuf>,
     pub p2pool_conf_path: Option<PathBuf>,
     pub explorer: FileExplorer,
     pub bitcoin_config_view: BitcoinConfigView,
+    pub p2pool_config_view: P2PoolConfigView,
+    pub settings_view: SettingsView,
     pub p2pool_config: Option<P2PoolConfig>,
     pub bitcoin_data: Vec<BitcoinEntry>,
     pub bitcoin_status_tab: usize,
+    pub settings: Settings,
+    /// Cached value of the `HOME` environment variable, used for path display.
+    /// Populated once at startup to avoid repeated syscalls during rendering.
+    pub home_dir: String,
+    /// Cached result of `settings::config_dir()`, used to display the default
+    /// settings storage path without repeated env-var lookups during rendering.
+    pub config_dir: PathBuf,
 }
 
 impl App {
+    #[must_use]
     pub fn new() -> App {
         App {
             current_screen: CurrentScreen::Home,
@@ -83,9 +115,14 @@ impl App {
             p2pool_conf_path: None,
             explorer: FileExplorer::new(),
             bitcoin_config_view: BitcoinConfigView::new(),
+            p2pool_config_view: P2PoolConfigView::new(),
+            settings_view: SettingsView::new(),
             p2pool_config: None,
             bitcoin_data: Vec::new(),
             bitcoin_status_tab: 0,
+            settings: Settings::default(),
+            home_dir: std::env::var("HOME").unwrap_or_default(),
+            config_dir: crate::settings::config_dir().unwrap_or_default(),
         }
     }
 
@@ -96,6 +133,12 @@ impl App {
             self.bitcoin_config_view.save_message = None;
             self.bitcoin_config_view.editing = false;
             self.bitcoin_config_view.edit_input.clear();
+        }
+        if self.current_screen == CurrentScreen::P2PoolConfig {
+            self.p2pool_config_view.warning_message = None;
+            self.p2pool_config_view.save_message = None;
+            self.p2pool_config_view.editing = false;
+            self.p2pool_config_view.edit_input.clear();
         }
         if let Some(&(_, screen)) = SIDEBAR_ITEMS.get(self.sidebar_index) {
             self.current_screen = screen;
