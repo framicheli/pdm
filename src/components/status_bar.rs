@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::app::{App, CurrentScreen};
+use crate::components::settings_view::{FIELDS, FieldKind};
 use ratatui::{prelude::*, widgets::Paragraph};
 
 #[derive(Clone, Debug)]
@@ -19,6 +20,7 @@ fn hint(key: &str, desc: &str) -> Vec<Span<'static>> {
 }
 
 impl StatusBar {
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -37,7 +39,7 @@ impl StatusBar {
             CurrentScreen::BitcoinConfig if app.bitcoin_conf_path.is_some() => {
                 if let Some(msg) = &app.bitcoin_config_view.save_message {
                     spans.push(Span::styled(
-                        format!(" ✓ {}  ", msg),
+                        format!(" ✓ {msg}  "),
                         Style::default().fg(Color::Green),
                     ));
                 } else if app.bitcoin_config_view.editing {
@@ -61,13 +63,48 @@ impl StatusBar {
             CurrentScreen::BitcoinConfig => {
                 if let Some(msg) = &app.bitcoin_config_view.warning_message {
                     spans.push(Span::styled(
-                        format!(" ⚠ {}  ", msg),
+                        format!(" ⚠ {msg}  "),
                         Style::default().fg(Color::Yellow),
                     ));
                     spans.extend(hint("Enter", "Try again"));
                 } else {
                     spans.extend(hint("↑↓", "Navigate sidebar"));
                     spans.extend(hint("Enter", "Open file"));
+                    spans.extend(hint("Esc", "Back"));
+                }
+            }
+            CurrentScreen::Settings => {
+                if let Some(err) = &app.settings_view.save_error {
+                    spans.push(Span::styled(
+                        format!(" ⚠ {err}  "),
+                        Style::default().fg(Color::Red),
+                    ));
+                } else if app.settings_view.sidebar_focused {
+                    spans.extend(hint("↑↓", "Navigate sidebar"));
+                    spans.extend(hint("Enter", "Focus settings"));
+                } else {
+                    let s = &app.settings;
+                    let idx = app.settings_view.selected_index;
+                    let field_is_set = match idx {
+                        0 => s.bitcoin_conf_path.is_some(),
+                        1 => s.p2pool_conf_path.is_some(),
+                        2 => s.ln_conf_path.is_some(),
+                        3 => s.shares_market_conf_path.is_some(),
+                        4 => s.settings_dir_override.is_some(),
+                        _ => false,
+                    };
+                    spans.extend(hint("↑↓", "Navigate"));
+                    if let Some(&(_, kind)) = FIELDS.get(idx) {
+                        let label = if matches!(kind, FieldKind::DirectoryPicker) {
+                            "Browse dir"
+                        } else {
+                            "Browse file"
+                        };
+                        spans.extend(hint("Enter", label));
+                    }
+                    if field_is_set {
+                        spans.extend(hint("⌫", "Clear"));
+                    }
                     spans.extend(hint("Esc", "Back"));
                 }
             }
@@ -206,5 +243,124 @@ mod tests {
         app.current_screen = CurrentScreen::Home;
         let output = render_status_bar(&app);
         assert!(output.contains("Select"));
+    }
+
+    #[test]
+    fn settings_sidebar_focused_shows_navigate_sidebar() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = true;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Navigate sidebar"));
+        assert!(output.contains("Focus settings"));
+    }
+
+    #[test]
+    fn settings_content_focused_shows_browse_back() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        // field 0 is FilePicker
+        app.settings_view.selected_index = 0;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Browse file"));
+        assert!(output.contains("Back"));
+    }
+
+    #[test]
+    fn settings_content_focused_dir_field_shows_browse_dir() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        // field 4 is DirectoryPicker
+        app.settings_view.selected_index = 4;
+        let output = render_status_bar(&app);
+        assert!(output.contains("Browse dir"));
+        assert!(output.contains("Back"));
+    }
+
+    #[test]
+    fn settings_content_focused_field_set_shows_clear_hint() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 0;
+        app.settings.bitcoin_conf_path = Some(std::path::PathBuf::from("/tmp/bitcoin.conf"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_focused_field_unset_no_clear_hint() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 0;
+        // bitcoin_conf_path is None by default
+        let output = render_status_bar(&app);
+        assert!(!output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_save_error_shown_in_status_bar() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.save_error = Some("disk full".to_string());
+        let output = render_status_bar(&app);
+        assert!(output.contains("disk full"));
+    }
+
+    #[test]
+    fn settings_content_p2pool_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 1;
+        app.settings.p2pool_conf_path = Some(std::path::PathBuf::from("/tmp/p2pool.toml"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_ln_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 2;
+        app.settings.ln_conf_path = Some(std::path::PathBuf::from("/tmp/ln.conf"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_shares_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 3;
+        app.settings.shares_market_conf_path = Some(std::path::PathBuf::from("/tmp/shares.conf"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_out_of_range_field_no_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 99;
+        let output = render_status_bar(&app);
+        assert!(!output.contains("Clear"));
+    }
+
+    #[test]
+    fn settings_content_directory_override_field_set_shows_clear() {
+        let mut app = App::new();
+        app.current_screen = CurrentScreen::Settings;
+        app.settings_view.sidebar_focused = false;
+        app.settings_view.selected_index = 4;
+        app.settings.settings_dir_override = Some(std::path::PathBuf::from("/custom/dir"));
+        let output = render_status_bar(&app);
+        assert!(output.contains("Clear"));
     }
 }
